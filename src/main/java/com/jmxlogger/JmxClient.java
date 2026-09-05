@@ -117,7 +117,7 @@ public class JmxClient implements AutoCloseable {
      * 注意：Logback 的 reloadByFileName 接受的是文件路径（内部会 new File(path) 校验存在性，
      * 再自行转 URL），因此这里直接传原始路径，由目标 JVM 解析读取。
      */
-    public void reloadByFile(String filePath) throws Exception {
+    public void reloadByFileName(String filePath) throws Exception {
         invoke("reloadByFileName", new Object[]{filePath},
                 new String[]{String.class.getName()});
     }

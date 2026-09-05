@@ -29,7 +29,7 @@ public class ReloadCommand implements Runnable {
                 client.reloadDefaultConfiguration();
                 System.out.println("已重新加载默认配置 (reloadDefaultConfiguration)");
             } else {
-                client.reloadByFile(filePath);
+                client.reloadByFileName(filePath);
                 System.out.println("已按文件重新加载配置: " + filePath);
             }
         } catch (Exception e) {
