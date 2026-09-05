@@ -26,7 +26,7 @@ public class ReloadCommand implements Runnable {
     public void run() {
         try (JmxClient client = parent.connect()) {
             if (filePath == null || filePath.isEmpty()) {
-                client.reloadDefault();
+                client.reloadDefaultConfiguration();
                 System.out.println("已重新加载默认配置 (reloadDefaultConfiguration)");
             } else {
                 client.reloadByFile(filePath);

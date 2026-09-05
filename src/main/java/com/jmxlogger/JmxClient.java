@@ -108,7 +108,7 @@ public class JmxClient implements AutoCloseable {
                 new String[]{String.class.getName(), String.class.getName()});
     }
 
-    public void reloadDefault() throws Exception {
+    public void reloadDefaultConfiguration() throws Exception {
         invoke("reloadDefaultConfiguration", new Object[]{}, new String[]{});
     }
 

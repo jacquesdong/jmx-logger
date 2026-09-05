@@ -62,7 +62,7 @@ jmx-logger/
 2. 实现 `JmxClient.java`：
    - `connect(server, user, pass)` 建立 `MBeanServerConnection`。
    - `findConfiguratorObjectName()` 自动发现 JMXConfigurator MBean。
-   - 封装 `getLoggerList()`、`getLoggerLevel(name)`、`getLoggerEffectiveLevel(name)`、`setLoggerLevel(name, level)`、`reloadDefault()`、`reloadByFile(path)`。
+   - 封装 `getLoggerList()`、`getLoggerLevel(name)`、`getLoggerEffectiveLevel(name)`、`setLoggerLevel(name, level)`、`reloadDefaultConfiguration()`、`reloadByFile(path)`。
    - 统一异常处理与错误提示。
 3. 实现 `JmxLoggerCli.java`：picocli `@Command` 顶层类，全局字段，`main` 调用 `CommandLine`。
 4. 实现三个子命令：`GetCommand`、`SetCommand`、`ReloadCommand`，各自注入全局参数并调用 `JmxClient`。
