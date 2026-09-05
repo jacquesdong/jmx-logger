@@ -25,8 +25,8 @@ import picocli.CommandLine.Option;
 public class JmxLoggerCli implements Runnable {
 
     @Option(names = {"-s", "--server"},
-            description = "目标 JVM 的 JMX 地址，格式 host:port")
-    private String server;
+            description = "目标 JVM 的 JMX 地址，默认值为 ${DEFAULT-VALUE}")
+    private String server = "127.0.0.1:19000";
 
     @Option(names = {"-u", "--username"}, description = "JMX 用户名（可选）")
     private String username;
