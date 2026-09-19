@@ -1,15 +1,13 @@
 package com.jmxlogger;
 
 import com.jmxlogger.support.ExitCodes;
+import com.jmxlogger.testing.CliRunner;
 import com.jmxlogger.testing.StubLogbackConfigurator;
 import com.jmxlogger.testing.TestJmxServer;
 import org.junit.After;
 import org.junit.Test;
 import picocli.CommandLine;
 
-import java.io.ByteArrayOutputStream;
-import java.io.PrintStream;
-import java.io.UnsupportedEncodingException;
 import java.util.Set;
 
 import static org.junit.Assert.assertEquals;
@@ -72,17 +70,16 @@ public class JmxLoggerCliTest {
      * 退出码必须是 2；这些用例不建连接，不依赖网络。
      */
     @Test
-    public void usageErrorsExitWithCode2() {
-        assertEquals(ExitCodes.USAGE, JmxLoggerCli.commandLine().execute("set", "com.example", "NOPE"));
-        assertEquals(ExitCodes.USAGE, JmxLoggerCli.commandLine().execute("-s", "", "get"));
-        assertEquals(ExitCodes.USAGE, JmxLoggerCli.commandLine().execute("--nope", "get"));
+    public void usageErrorsExitWithCode2() throws Exception {
+        assertEquals(ExitCodes.USAGE, run("set", "com.example", "NOPE"));
+        assertEquals(ExitCodes.USAGE, run("-s", "", "get"));
+        assertEquals(ExitCodes.USAGE, run("--nope", "get"));
     }
 
     /** 连不上目标属于运行时错误（1），而不是用法错误。用必然连不上的地址，快速失败。 */
     @Test
-    public void connectionFailuresExitWithCode1() {
-        assertEquals(ExitCodes.ERROR,
-                JmxLoggerCli.commandLine().execute("-s", "127.0.0.1:1", "--timeout", "1", "get"));
+    public void connectionFailuresExitWithCode1() throws Exception {
+        assertEquals(ExitCodes.ERROR, run("-s", "127.0.0.1:1", "--timeout", "1", "get"));
     }
 
     /** 成功路径必须是 0——改退出码体系最容易把成功也改成非零。 */
@@ -99,14 +96,7 @@ public class JmxLoggerCliTest {
 
     /** 执行命令时吞掉 stdout：成功路径会打印表格/报告，不该混进测试输出。 */
     private static int run(String... args) throws Exception {
-        PrintStream original = System.out;
-        ByteArrayOutputStream buffer = new ByteArrayOutputStream();
-        try {
-            System.setOut(new PrintStream(buffer, true, "UTF-8"));
-            return JmxLoggerCli.commandLine().execute(args);
-        } finally {
-            System.setOut(original);
-        }
+        return CliRunner.run(args).exitCode;
     }
 
     private static Object readField(Object target, String fieldName) throws Exception {

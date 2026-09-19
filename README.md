@@ -294,5 +294,7 @@ transport/provider 抽象、`doctor` 诊断子命令、统一退出码与 `--ver
   注册 `StubLogbackConfigurator` 桩 MBean，覆盖序列化与真实调用链路。
 - 退出码与报错形态由 `CommandSupportTest` 与 `JmxLoggerCliTest` 里的 `execute(...)` 用例锁定
   （用法错误 2 / 运行时错误 1 / 成功 0）。改退出码要同步 `ExitCodes`、本文档与 `doc/plan_v1.0.1.md`。
+- `GetCommandTest` / `SetCommandTest` / `ReloadCommandTest` 直接跑完整 CLI（经 `CliRunner` 捕获 stdout/stderr），
+  覆盖输出表格、递归 `-r`、级别大小写归一化、"非法级别不连目标就失败"，以及目标缺失 MBean 时的退出码与文案。
 - `LocalPidConnectorTest` 会真的 attach 一次测试进程自身：环境不支持（JRE / 容器 / seccomp）时
   用 JUnit `Assume` 跳过，不会让构建失败。

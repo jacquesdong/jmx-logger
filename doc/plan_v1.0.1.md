@@ -121,7 +121,11 @@ flowchart LR
         ├── LogbackJmxProviderTest.java              # [DONE] 验证 list/get/set/重置行为
         ├── RemoteJmxConnectorTest.java              # [DONE] 建连/超时/失败文案
         ├── CommandSupportTest.java                  # [DONE] 异常→退出码映射、报错形态（一行 vs 堆栈）、密码脱敏
-        └── DoctorCommandTest.java                   # [DONE] logback 可用 / 缺失 / 仅 actuator 三种情形
+        ├── GetCommandTest.java                      # [DONE] 列表/单查/-r 递归/未命中/缺 MBean 的退出码
+        ├── SetCommandTest.java                      # [DONE] 下发生效、大小写归一化、非法级别不连目标（退出码 2）
+        ├── ReloadCommandTest.java                   # [DONE] 默认重载 / 按文件重载 / 缺 MBean 的失败路径
+        ├── DoctorCommandTest.java                   # [DONE] logback 可用 / 缺失 / 仅 actuator 三种情形
+        └── testing/CliRunner.java                   # [NEW] 测试辅助：执行完整 CLI 并分别捕获 stdout/stderr
 ```
 
 ## 关键执行要点（防回归）
