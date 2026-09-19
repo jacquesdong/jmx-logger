@@ -82,6 +82,41 @@
                     </execution>
                 </executions>
             </plugin>
+            <plugin>
+                <groupId>io.github.git-commit-id</groupId>
+                <artifactId>git-commit-id-maven-plugin</artifactId>
+                <version>4.9.9</version>
+                <executions>
+                    <execution>
+                        <id>generate-git-properties</id>
+                        <goals>
+                            <goal>revision</goal>
+                        </goals>
+                        <phase>initialize</phase>
+                    </execution>
+                </executions>
+                <configuration>
+                    <dateFormat>yyyyMMdd</dateFormat>
+                    <verbose>false</verbose>
+                    <abbrevLength>8</abbrevLength>
+                    <gitDescribe>
+                        <abbrev>8</abbrev>
+                        <dirty>+</dirty>
+                    </gitDescribe>
+                    <!-- 源码包/CI 归档里没有 .git：降级为「不生成 git.properties」，
+                         而不是让构建失败——运行时 BuildInfo 会按 unknown 处理。 -->
+                    <failOnNoGitDirectory>false</failOnNoGitDirectory>
+                    <generateGitPropertiesFile>true</generateGitPropertiesFile>
+                    <!-- 只留 -V 展示得上的那几个：不把 branch、远端 URL、提交者写进产物。 -->
+                    <includeOnlyProperties>
+                        <includeOnlyProperty>^git.build.time$</includeOnlyProperty>
+                        <includeOnlyProperty>^git.build.version$</includeOnlyProperty>
+                        <includeOnlyProperty>^git.commit.id.abbrev$</includeOnlyProperty>
+                        <includeOnlyProperty>^git.commit.time$</includeOnlyProperty>
+                        <includeOnlyProperty>^git.dirty$</includeOnlyProperty>
+                    </includeOnlyProperties>
+                </configuration>
+            </plugin>
         </plugins>
     </build>
 </project>

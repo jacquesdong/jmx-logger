@@ -6,6 +6,7 @@ import com.jmxlogger.command.ReloadCommand;
 import com.jmxlogger.command.SetCommand;
 import com.jmxlogger.support.CommandSupport;
 import com.jmxlogger.support.ExitCodes;
+import com.jmxlogger.support.VersionProvider;
 import com.jmxlogger.transport.LocalPidConnector;
 import com.jmxlogger.transport.RemoteJmxConnector;
 import com.jmxlogger.transport.TargetConnector;
@@ -29,7 +30,8 @@ import picocli.CommandLine.Option;
 @Command(
         name = "jmx-logger",
         mixinStandardHelpOptions = true,
-        version = "jmx-logger 1.0.0",
+        // 版本不再写死：由构建期生成的 git.properties 提供（版本号 + commit + 构建时间）
+        versionProvider = VersionProvider.class,
         description = "通过 JMX 远程管理 Logback 的 Logger 级别与配置重载。",
         subcommands = {
                 GetCommand.class,
