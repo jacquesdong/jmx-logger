@@ -14,35 +14,50 @@ import static org.junit.Assert.assertTrue;
  */
 public class BuildInfoTest {
 
-    private static Properties gitProperties(String version, String commit, String buildTime, String dirty) {
+    private static Properties gitProperties() {
         Properties props = new Properties();
-        props.setProperty("git.build.version", version);
-        props.setProperty("git.commit.id.abbrev", commit);
+        props.setProperty("git.build.version", "1.0.0");
+        props.setProperty("git.commit.id.abbrev", "cb6fe8ed");
+        props.setProperty("git.commit.id.describe", "v1.0.0-21-gcb6fe8ed");
         props.setProperty("git.commit.time", "20260919");
-        props.setProperty("git.build.time", buildTime);
-        props.setProperty("git.dirty", dirty);
+        props.setProperty("git.build.time", "20260919");
+        props.setProperty("git.dirty", "false");
         return props;
     }
 
     @Test
-    public void describesVersionCommitAndBuildTime() {
-        BuildInfo info = BuildInfo.from(gitProperties("1.0.0", "a03d520c", "20260919", "false"));
+    public void prefersGitDescribeWithCommitTime() {
+        BuildInfo info = BuildInfo.from(gitProperties());
 
         assertTrue(info.isKnown());
-        assertEquals("1.0.0", info.version());
-        assertEquals("a03d520c", info.commitId());
-        assertEquals("20260919", info.buildTime());
-        assertEquals("jmx-logger 1.0.0 (commit a03d520c, 构建于 20260919)", info.describe());
+        assertEquals("v1.0.0-21-gcb6fe8ed", info.gitDescribe());
+        assertEquals("jmx-logger v1.0.0-21-gcb6fe8ed (20260919)", info.versionLine());
     }
 
     @Test
-    public void marksDirtyBuildWithPlusSuffix() {
-        BuildInfo info = BuildInfo.from(gitProperties("1.0.0", "a03d520c", "20260919", "true"));
+    public void keepsDirtyMarkerFromGitDescribe() {
+        Properties props = gitProperties();
+        props.setProperty("git.commit.id.describe", "v1.0.0-21-gcb6fe8ed+");
+        props.setProperty("git.dirty", "true");
+
+        BuildInfo info = BuildInfo.from(props);
 
         assertTrue(info.isDirty());
-        // 与 git describe 的约定一致：+ 表示构建时工作区有未提交改动
-        assertEquals("a03d520c+", info.commitId());
-        assertTrue(info.describe().contains("a03d520c+"));
+        // describe 结尾的 + 由 gitDescribe 的 dirty 标记给出，输出里必须原样保留
+        assertEquals("jmx-logger v1.0.0-21-gcb6fe8ed+ (20260919)", info.versionLine());
+    }
+
+    /** 浅克隆 / 仓库无 tag 时插件可能给不出 describe：退化为 pom 版本号。 */
+    @Test
+    public void fallsBackToProjectVersionWithoutDescribe() {
+        Properties props = gitProperties();
+        props.remove("git.commit.id.describe");
+
+        BuildInfo info = BuildInfo.from(props);
+
+        assertTrue(info.isKnown());
+        assertEquals("1.0.0", info.version());
+        assertEquals("jmx-logger 1.0.0", info.versionLine());
     }
 
     @Test
@@ -51,9 +66,9 @@ public class BuildInfoTest {
 
         assertFalse(info.isKnown());
         assertEquals(BuildInfo.UNKNOWN, info.version());
-        assertEquals(BuildInfo.UNKNOWN, info.commitId());
-        assertTrue("没有构建信息时也要给出可读输出，实际: " + info.describe(),
-                info.describe().contains("构建信息不可用"));
+        assertEquals(BuildInfo.UNKNOWN, info.gitDescribe());
+        assertTrue("没有构建信息时也要给出可读输出，实际: " + info.versionLine(),
+                info.versionLine().contains("构建信息不可用"));
     }
 
     /**
@@ -64,7 +79,7 @@ public class BuildInfoTest {
     public void loadNeverThrows() {
         BuildInfo info = BuildInfo.load();
 
-        assertTrue("describe() 不能为 null/空，实际: " + info.describe(),
-                info.describe() != null && !info.describe().isEmpty());
+        assertTrue("versionLine() 不能为 null/空，实际: " + info.versionLine(),
+                info.versionLine() != null && !info.versionLine().isEmpty());
     }
 }

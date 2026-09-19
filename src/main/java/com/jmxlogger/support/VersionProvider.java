@@ -12,6 +12,6 @@ public class VersionProvider implements CommandLine.IVersionProvider {
 
     @Override
     public String[] getVersion() {
-        return new String[]{BuildInfo.load().describe()};
+        return new String[]{BuildInfo.load().versionLine()};
     }
 }

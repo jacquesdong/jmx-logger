@@ -41,7 +41,7 @@ fat jar 内已包含 picocli，拷到任意有 JRE/JDK 的机器上 `java -jar` 
 | `--password` | JMX 密码（开启认证时） | 空 |
 | `--timeout` | 连接超时（秒），`0` 表示不限制 | `10` |
 | `-v, --verbose` | 出错时打印完整堆栈（默认只打一行原因） | 关 |
-| `-h, --help` / `-V, --version` | 帮助 / 版本与构建信息（版本号 + commit + 构建时间） | — |
+| `-h, --help` / `-V, --version` | 帮助 / 版本与构建信息（`git describe` + 提交时间，取不到时为版本号） | — |
 
 短选项只给"指向哪个 JVM"用（`-s` / `-p`）；认证参数只有长选项。
 
@@ -286,17 +286,18 @@ transport/provider 抽象、`doctor` 诊断子命令、统一退出码与 `--ver
 ./mvnw clean package   # 打成 fat jar
 ```
 
-构建时会由 `git-commit-id-maven-plugin` 把版本号、commit、构建时间写进
+构建时会由 `git-commit-id-maven-plugin` 把 describe、版本号、commit、提交时间写进
 `target/classes/git.properties`（随 fat jar 一起发布），`jmx-logger -V` 因此能回答
 "这个 jar 是哪次提交打的"：
 
 ```console
 $ java -jar target/jmx-logger.jar -V
-jmx-logger 1.0.0 (commit a03d520c+, 构建于 20260919)   # 结尾的 + 表示构建时工作区有未提交改动
+jmx-logger v1.0.0-21-gcb6fe8ed+ (20260919)   # describe + 提交时间；结尾的 + 表示工作区有未提交改动
 ```
 
-没有 `.git` 的构建（源码包、CI 归档）插件会跳过而非失败，此时 `-V` 降级为
-`jmx-logger (构建信息不可用：未找到 git.properties)`，不影响其他命令。
+`-V` 的输出优先级：`git.commit.id.describe` → pom 版本号（`jmx-logger 1.0.0`）→
+`jmx-logger (构建信息不可用：未找到 git.properties)`。最后一种出现在没有 `.git` 的构建
+（源码包、CI 归档），此时插件跳过而非失败，其他命令不受影响。
 
 测试说明：
 
