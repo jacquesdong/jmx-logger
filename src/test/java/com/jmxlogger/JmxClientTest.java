@@ -161,6 +161,38 @@ public class JmxClientTest {
     }
 
     @Test
+    public void connectTimesOutWhenTargetAcceptsButNeverAnswers() throws Exception {
+        TestJmxServer.BlackholeServer blackhole = TestJmxServer.startBlackhole();
+        try {
+            long start = System.currentTimeMillis();
+            try {
+                new JmxClient(blackhole.server(), null, null, 500L);
+                fail("对面不应答时应当在超时后放弃，而不是一直挂着");
+            } catch (IOException e) {
+                assertTrue("错误信息应说明超时并带上目标地址，实际为: " + e.getMessage(),
+                        e.getMessage().contains("超时") && e.getMessage().contains(blackhole.server()));
+            }
+            long elapsed = System.currentTimeMillis() - start;
+            assertTrue("应当在超时上限附近返回，实际耗时 " + elapsed + " ms", elapsed < 5000L);
+        } finally {
+            blackhole.close();
+        }
+    }
+
+    @Test
+    public void connectTimeoutIsDisabledWhenNotPositive() throws Exception {
+        int closedPort = TestJmxServer.findFreePort();
+        try {
+            new JmxClient("127.0.0.1:" + closedPort, null, null, 0L);
+            fail("端口不可达时应当抛出 IOException");
+        } catch (IOException e) {
+            assertTrue("不限制超时应沿用原有报错文案，实际为: " + e.getMessage(),
+                    e.getMessage().contains("无法连接到 JMX 服务器")
+                            && e.getMessage().contains("127.0.0.1:" + closedPort));
+        }
+    }
+
+    @Test
     public void connectFailureIsWrappedAsIOExceptionWithUrl() throws Exception {
         int closedPort = TestJmxServer.findFreePort();
         try {

@@ -49,6 +49,11 @@ public final class TestJmxServer implements AutoCloseable {
         return new TestJmxServer();
     }
 
+    /** 启动一个"黑洞"TCP 服务：接受连接后既不回应也不关闭，用于验证连接超时分支。 */
+    public static BlackholeServer startBlackhole() throws IOException {
+        return new BlackholeServer();
+    }
+
     /** 返回可直接传给 {@code -s/--server} 的 {@code host:port}。 */
     public String server() {
         return "127.0.0.1:" + port;
@@ -87,6 +92,44 @@ public final class TestJmxServer implements AutoCloseable {
         try {
             return socket.getLocalPort();
         } finally {
+            socket.close();
+        }
+    }
+
+    /**
+     * 只 accept、不回应的 TCP 服务，模拟"端口能连上但对面不说话"——正是防火墙丢包、
+     * 或 RMI 数据端口（jmxremote.rmi.port）未放通时的真实表现。
+     */
+    public static final class BlackholeServer implements AutoCloseable {
+
+        private final ServerSocket socket;
+        private final Thread acceptor;
+
+        private BlackholeServer() throws IOException {
+            this.socket = new ServerSocket(0);
+            this.acceptor = new Thread(new Runnable() {
+                @Override
+                public void run() {
+                    while (!socket.isClosed()) {
+                        try {
+                            // 刻意不关闭 accept 到的 socket：关了客户端会立刻 EOF，就挂不住了
+                            socket.accept();
+                        } catch (IOException e) {
+                            return;
+                        }
+                    }
+                }
+            }, "jmx-logger-blackhole");
+            this.acceptor.setDaemon(true);
+            this.acceptor.start();
+        }
+
+        public String server() {
+            return "127.0.0.1:" + socket.getLocalPort();
+        }
+
+        @Override
+        public void close() throws IOException {
             socket.close();
         }
     }

@@ -10,6 +10,14 @@ import java.io.IOException;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.Callable;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.ThreadFactory;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 
 /**
  * 封装到目标 JVM 的 JMX 连接以及对 Logback JMXConfigurator MBean 的操作调用。
@@ -19,31 +27,90 @@ public class JmxClient implements AutoCloseable {
 
     private static final String CONFIGURATOR_TYPE = "ch.qos.logback.classic.jmx.JMXConfigurator";
 
+    /** 默认连接超时：10 秒。{@code <= 0} 表示不限制（等同于改造前的行为）。 */
+    public static final long DEFAULT_CONNECT_TIMEOUT_MILLIS = 10_000L;
+
     private final JMXConnector connector;
     private final MBeanServerConnection mbsc;
     private final ObjectName configuratorName;
 
     public JmxClient(String server, String username, String password) throws IOException {
-        this.connector = connect(server, username, password);
+        this(server, username, password, DEFAULT_CONNECT_TIMEOUT_MILLIS);
+    }
+
+    /**
+     * @param connectTimeoutMillis 连接超时（毫秒），{@code <= 0} 表示不限制。
+     */
+    public JmxClient(String server, String username, String password, long connectTimeoutMillis)
+            throws IOException {
+        this.connector = connect(server, username, password, connectTimeoutMillis);
         this.mbsc = connector.getMBeanServerConnection();
         this.configuratorName = findConfiguratorObjectName();
     }
 
-    private JMXConnector connect(String server, String username, String password) throws IOException {
-        String url = "service:jmx:rmi:///jndi/rmi://" + server + "/jmxrmi";
-        JMXServiceURL serviceURL = new JMXServiceURL(url);
+    private JMXConnector connect(String server, String username, String password, long timeoutMillis)
+            throws IOException {
+        final String url = "service:jmx:rmi:///jndi/rmi://" + server + "/jmxrmi";
+        final JMXServiceURL serviceURL = new JMXServiceURL(url);
 
-        Map<String, Object> env = new HashMap<>();
+        final Map<String, Object> env = new HashMap<>();
         if (username != null) {
             String[] credentials = new String[]{username, password == null ? "" : password};
             env.put(JMXConnector.CREDENTIALS, credentials);
         }
 
-        try {
-            return JMXConnectorFactory.connect(serviceURL, env);
-        } catch (IOException e) {
-            throw new IOException("无法连接到 JMX 服务器: " + server + " (" + url + "): " + e.getMessage(), e);
+        if (timeoutMillis <= 0) {
+            try {
+                return JMXConnectorFactory.connect(serviceURL, env);
+            } catch (IOException e) {
+                throw connectFailed(server, url, e.getMessage(), e);
+            }
         }
+
+        // RMI 的连接握手（JNDI 查注册表 + 连 RMI 数据端口）本身不可中断、也没有超时参数，
+        // 因此放到守护线程里跑，由 Future 限时；超时后放弃这次连接（线程是 daemon，不阻碍 JVM 退出）。
+        ExecutorService executor = Executors.newSingleThreadExecutor(new ThreadFactory() {
+            @Override
+            public Thread newThread(Runnable r) {
+                Thread t = new Thread(r, "jmx-logger-connect");
+                t.setDaemon(true);
+                return t;
+            }
+        });
+        try {
+            Future<JMXConnector> future = executor.submit(new Callable<JMXConnector>() {
+                @Override
+                public JMXConnector call() throws IOException {
+                    return JMXConnectorFactory.connect(serviceURL, env);
+                }
+            });
+            try {
+                return future.get(timeoutMillis, TimeUnit.MILLISECONDS);
+            } catch (TimeoutException e) {
+                future.cancel(true);
+                throw new IOException("连接 JMX 服务器超时（超过 " + timeoutMillis + " ms）: "
+                        + server + " (" + url + ")\n"
+                        + "常见原因：目标未开 JMX 端口、防火墙拦了 RMI 数据端口、"
+                        + "-Djava.rmi.server.hostname 指向不可达地址、"
+                        + "com.sun.management.jmxremote.rmi.port 与 port 不一致且未放通。\n"
+                        + "可用 --timeout 放宽（0 表示不限）。", e);
+            } catch (ExecutionException e) {
+                Throwable cause = e.getCause();
+                if (cause instanceof IOException) {
+                    throw connectFailed(server, url, cause.getMessage(), cause);
+                }
+                throw connectFailed(server, url, String.valueOf(cause), cause);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                throw connectFailed(server, url, "连接被中断", e);
+            }
+        } finally {
+            executor.shutdownNow();
+        }
+    }
+
+    private static IOException connectFailed(String server, String url, String reason, Throwable cause) {
+        return new IOException("无法连接到 JMX 服务器: " + server + " (" + url + "): " + reason, cause);
     }
 
     private ObjectName findConfiguratorObjectName() throws IOException {

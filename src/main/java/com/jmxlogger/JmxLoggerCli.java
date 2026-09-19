@@ -34,6 +34,10 @@ public class JmxLoggerCli implements Runnable {
     @Option(names = {"-p", "--password"}, description = "JMX 密码（可选）")
     private String password;
 
+    @Option(names = {"--timeout"}, paramLabel = "秒",
+            description = "连接超时（秒），0 表示不限制，默认值为 ${DEFAULT-VALUE}")
+    private long timeoutSeconds = JmxClient.DEFAULT_CONNECT_TIMEOUT_MILLIS / 1000L;
+
     public String getServer() {
         return server;
     }
@@ -51,7 +55,15 @@ public class JmxLoggerCli implements Runnable {
         if (server == null || server.isEmpty()) {
             throw new IllegalArgumentException("必须通过 -s/--server 指定目标 JVM 的 JMX 地址 (host:port)");
         }
-        return new JmxClient(server, username, password);
+        return new JmxClient(server, username, password, toMillis(timeoutSeconds));
+    }
+
+    /** 秒 → 毫秒，{@code <= 0} 保持为"不限制"，并防止极端取值溢出。 */
+    private static long toMillis(long seconds) {
+        if (seconds <= 0) {
+            return 0L;
+        }
+        return seconds > Long.MAX_VALUE / 1000L ? Long.MAX_VALUE : seconds * 1000L;
     }
 
     @Override
