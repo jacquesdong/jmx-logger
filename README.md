@@ -43,8 +43,7 @@ fat jar 内已包含 picocli，拷到任意有 JRE/JDK 的机器上 `java -jar` 
 | `-v, --verbose` | 出错时打印完整堆栈（默认只打一行原因） | 关 |
 | `-h, --help` / `-V, --version` | 帮助 / 版本 | — |
 
-短选项只给"指向哪个 JVM"用（`-s` / `-p`）；认证参数只有长选项，
-避免 `-p` 在密码与进程号之间来回摇摆。
+短选项只给"指向哪个 JVM"用（`-s` / `-p`）；认证参数只有长选项。
 
 连接串形如 `service:jmx:rmi:///jndi/rmi://<server>/jmxrmi`。
 
@@ -252,14 +251,14 @@ java -jar target/jmx-logger.jar -s 10.0.0.5:19000 get || echo "失败，退出�
 | 连上后很快断开 / 卡住 | 未设 `java.rmi.server.hostname`，或 `rmi.port` 与 `port` 不一致 |
 | `set` 后级别没变 | 确认改的是正确的 logger 名；子 logger 会覆盖父 logger；`reload` 会重置为配置文件中的值 |
 | 认证失败 | 检查 `jmxremote.password` 文件权限必须为 `600`，且 `--username`/`--password` 与目标配置一致 |
-| `非法的 PID "..."` | `-p` 现在是**进程号**不是密码：老脚本里的 `-p <密码>` 会走到这里，改用 `--password` |
+| `非法的 PID "..."` | `-p` 只接受正整数进程号，用 `jps -l` 确认 PID |
 | `无法 attach 到本地进程 <pid>` | 按报错里的 5 条排查清单逐项核对：PID 是否存在、是否同用户、是否用 JDK 运行、`/tmp` 是否可写、容器是否同一 PID namespace |
 | `attach ... 需要 com.sun.tools.attach.VirtualMachine` | 用 **JRE** 跑了 jmx-logger（缺 `tools.jar`）：换成完整 JDK，或改用 `-s host:port` |
 | `已 attach 到进程 N，但目标未提供本地 JMX 连接器地址` | 目标 JVM 禁用了管理代理（`-XX:+DisableAttachMechanism`、`-Dcom.sun.management.jmxremote=false`），或 JDK 过旧 |
 
 ## 安全建议
 
-`--password` 明文密码会出现在 `ps` 输出里（`-p` 已让给进程号）。当前版本只支持命令行传密码，建议用交互式读取绕开：
+`--password` 明文密码会出现在 `ps` 输出里。当前版本只支持命令行传密码，建议用交互式读取绕开：
 
 ```bash
 read -s JMX_PASS && java -jar target/jmx-logger.jar -s 10.0.0.5:19000 --username admin --password "$JMX_PASS" get

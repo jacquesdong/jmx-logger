@@ -51,7 +51,7 @@ public class JmxLoggerCliTest {
     @Test
     public void globalOptionsAreVisibleToSubcommands() throws Exception {
         CommandLine cmd = new CommandLine(new JmxLoggerCli());
-        // 短选项 -s/-p 留给"指向哪个 JVM"（-p 是进程号），认证参数只有长选项
+        // -p 是进程号，认证参数只有长选项
         cmd.parseArgs("-s", "10.0.0.5:19000", "--username", "admin", "--password", "secret",
                 "get", "com.example.Foo");
 
