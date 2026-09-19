@@ -14,7 +14,7 @@ import java.util.List;
  * <p>内部已拆成两层，本类只保留原有方法名与行为，便于上层命令逐步迁移：
  * <ul>
  *   <li>传输层：{@link RemoteJmxConnector}（{@code -s host:port} 的 RMI 连接）与
- *       {@code LocalPidConnector}（{@code -P pid} 的本地 attach），统一为 {@link TargetConnector}；</li>
+ *       {@code LocalPidConnector}（{@code -p pid} 的本地 attach），统一为 {@link TargetConnector}；</li>
  *   <li>{@link LogbackJmxProvider}：Provider 层，负责"连上之后操作哪个 MBean"。 </li>
  * </ul>
  * 新代码请直接用这两个类（或 {@link LoggerProvider} 接口），本类在命令层全部迁移完成后会移除。
@@ -40,7 +40,7 @@ public class JmxClient implements AutoCloseable {
     }
 
     /**
-     * 在已建立的传输层连接上工作：{@code -P/--pid} 的本地 attach 与 {@code -s} 的 RMI
+     * 在已建立的传输层连接上工作：{@code -p/--pid} 的本地 attach 与 {@code -s} 的 RMI
      * 走的是同一个 {@link TargetConnector} 接口，本类不需要区分。
      */
     public JmxClient(TargetConnector connector) throws IOException {

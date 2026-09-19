@@ -34,7 +34,7 @@
 
 ## 核心功能增量（按用户收益排序）
 
-1. **连不上也能用**：新增 `-P/--pid` 本地 attach（目标 JVM 未开 JMX 端口时，通过 attach API 动态启动本地管理代理）。
+1. **连不上也能用**：新增 `-p/--pid` 本地 attach（目标 JVM 未开 JMX 端口时，通过 attach API 动态启动本地管理代理）。
 2. **知道为什么连不上**：新增 `doctor` 子命令，区分"没配 `<jmxConfigurator/>` / 没开 JMX 端口 / logback 版本过高 / 可走 Actuator 兜底"，并输出目标侧该加的配置。
 3. **可插拔 Provider**：`logback-jmx`（现逻辑，支持 reload）与 `boot-actuator-jmx`（兜底，不支持 reload，**覆盖 Boot 1.5 与 2.7 两种命名模型**），`auto` 自动探测。
 4. **健壮性与打磨**：统一错误退出码与 `--verbose`、支持重置为继承级别、`--object-name` 多 LoggerContext 选择、`--json` 输出、**logger 不存在时明确报错并返回非 0 退出码**、单元测试与目标侧配置文档。
@@ -53,7 +53,7 @@
 flowchart LR
     CLI["jmx-logger CLI<br/>picocli"] --> TR["TargetConnector 传输层"]
     TR --> R["RemoteJmxConnector<br/>-s host:port"]
-    TR --> L["LocalPidConnector<br/>-P pid · attach 反射"]
+    TR --> L["LocalPidConnector<br/>-p pid · attach 反射"]
     TR --> PF{"ProviderFactory<br/>--target auto"}
     PF --> P1["LogbackJmxProvider<br/>logback 1.1/1.2<br/>get/set/reload"]
     PF --> P2["BootActuatorJmxProvider<br/>Boot1.5 name=loggersEndpoint<br/>Boot2.7 name=Loggers<br/>MBeanInfo 驱动入参"]
@@ -130,7 +130,9 @@ flowchart LR
 - **attach 在 JDK 8 的可行性**：`com.sun.tools.attach.VirtualMachine#startLocalManagementAgent()` 在 JDK 8 中存在，但类在 `tools.jar` 里，不在默认 classpath。实现要用反射 + `URLClassLoader.addURL` 动态把 `${java.home}/../lib/tools.jar` 挂进来；捕获 `ClassNotFound`/`AttachNotSupported` 并给出可操作提示（换 JDK 而非 JRE；同一 OS 用户；`/tmp` 可写；容器需共享 PID namespace）。JDK 9+ 无 `tools.jar`，同一份反射代码天然兼容。
 - **性能（2026-09-19 实测后定论，不要再回到"并发化"方案）**：常用路径是**单 logger 的 `set`/`get`**，其耗时构成是 `java -jar --help` ≈ 287 ms（JVM 启动 + picocli）vs `get ROOT` ≈ 340 ms —— **JMX 只占约 50 ms**（单次 invoke 是 1 ms 级、连接握手约 143 ms 冷启动）。⇒ **并发化 2N 次调用的方案已否决**：对主路径零收益，只会增加复杂度。全量列出（783 个 logger ⇒ 1566 次往返 ≈ 361 ms，端到端 793 ms）是唯一慢路径但属低频，优化留给 P3 的 Actuator 批量读（Boot 1.5 `getLoggers()` 实测 1 次调用 50 ms 拿全量）；Logback Provider 侧无法批量，`--no-effective` 保留为逃生口（默认行为不变）。另外「level 非空就跳过 effective 调用」的设想已实测否决：783 个 logger 里 769 个 level 为空，只能省 14 次调用。
 - **级别语义红线（已实测，写死在代码注释与测试里）**：读取侧"未配置/不存在"是**空串**不是 `null`；写入侧重置继承要传**字符串 `"null"`**，传 Java `null` 或非法级别会被目标静默忽略。任何一层再引入 `null` 语义都要先回来核对本节。
-- **安全**：`-p` 明文密码建议改为环境变量/交互式读取，避免在 ps 输出中泄漏；凭证不进日志。
+- **安全**：`--password` 明文密码建议改为环境变量/交互式读取，避免在 ps 输出中泄漏；凭证不进日志。
+- **短选项分配（2026-09-19 定稿）**：`-s`（host:port）与 `-p`（pid）是"指向哪个 JVM"的两个短选项，
+  `--username` / `--password` 只有长选项——`-p` 曾长期是密码，再让它身兼两义会让人写错命令。
 - **错误输出**：禁止打印完整堆栈到标准输出；`--verbose` 才打印堆栈，且过滤掉认证信息。
 - **变更半径**：阶段一只做重构与新增，不改既有行为；`auto` 默认路径必须等价于改造前的 JmxClient 行为，确保 Back Boot 1.5.6 环境零影响。
 
@@ -139,7 +141,7 @@ flowchart LR
 | 阶段 | 目标 | 主要改动 | 验收方式 |
 | --- | --- | --- | --- |
 | P1 | 抽象与诊断 | transport/ + provider/ 骨架、`LogbackJmxProvider` 迁移、`DoctorCommand`、统一退出码 | 对现有 Boot 1.5.6 目标 `get/set/reload` 行为与改造前完全一致；`doctor -s host:port` 能列出候选 MBean 与操作签名 |
-| P2 | 本地 attach | `LocalPidConnector`、`-P/--pid` | 对未开 JMX 端口的本机进程：`get -P <pid>` 成功；容器内/JRE 缺失时给出明确报错而非堆栈 |
+| P2 | 本地 attach | `LocalPidConnector`、`-p/--pid` | 对未开 JMX 端口的本机进程：`get -p <pid>` 成功；容器内/JRE 缺失时给出明确报错而非堆栈 |
 | P3 | Actuator 兜底（**Boot 1.5 + 2.7 双命名**） | `BootActuatorJmxProvider`（先查 `name=loggersEndpoint`，再查 `name=Loggers`，签名与返回值由 MBeanInfo 决定）+ `ProviderFactory` auto | ① 现网 Boot 1.5 目标上 `--target boot-jmx get` 用 1 次 RMI 列出全部 logger，且结果与 `--target logback-jmx` 一致；② 目标未配 `<jmxConfigurator/>` 但带 actuator 时 `--target auto` 自动切换；③ `reload` 给出替代方案而非崩溃 |
 | P4 | 打磨 | `--json`、`set inherit`（下发字符串 `"null"`）、`--object-name`、**logger 不存在报错 + 非 0 退出码**、单测、Justfile、README | 单元测通过；`get --json` 可被脚本消费；`get 不存在的名字` 打印"未找到 logger X"且退出码为 3 |
 | P5 | 未来 Boot 3 预留 | 基于已有 Provider 接口扩展 HTTP Provider / 自定义 endpoint 指引 | 文档化差异（JMX 默认仅 `health`、logback ≥1.3 无 JMXConfigurator、`configureLogLevel` 入参类型），不写代码实现 |
@@ -198,7 +200,7 @@ org.springframework.boot:type=Endpoint,name=loggersEndpoint
 - 对外行为变化仅两处：`set` 的非法级别从"自己打印并 exit(2)"变为抛 `IllegalArgumentException`（码仍是 2、文案不变、仍不建连）；
   缺少 `-s` 由 1 变 2（本就是用法错误）。其余命令的成功/失败码与改造前一致。
 
-### 已完成（P2）：本地 attach 与 -P/--pid
+### 已完成（P2）：本地 attach 与 -p/--pid
 
 - `transport/LocalPidConnector`：attach → `VirtualMachine#startLocalManagementAgent()` → 连返回的本地连接器地址
   （`service:jmx:rmi://...`，仅本机可达）。**目标侧零配置**（不用开 JMX 端口）。
@@ -211,12 +213,12 @@ org.springframework.boot:type=Endpoint,name=loggersEndpoint
   已 attach 但拿不到本地连接器地址时提示目标是禁用了管理代理。
 - 抽出 `transport/ConnectWithTimeout`（包内可见）：把"建连动作放守护线程 + Future 限时"从 `RemoteJmxConnector`
   里提出来，`LocalPidConnector` 的 attach / 启动代理 / 连 JMX 三步各自限时，复用同一套超时语义。
-- `JmxLoggerCli#openConnector()` 返回 `TargetConnector`：给了 `-P` 走本地 attach，否则按 `-s` 走 RMI（`-P` 优先）。
+- `JmxLoggerCli#openConnector()` 返回 `TargetConnector`：给了 `-p` 走本地 attach，否则按 `-s` 走 RMI（`-p` 优先）。
   `JmxClient` 新增 `JmxClient(TargetConnector)` 构造函数，`get/set/reload` 因此天然支持两条通道。
-- `doctor -P <pid>` 会打印"本地 attach"通道与本地连接器地址，且结论里不再建议去配 `jmxremote.port`；
+- `doctor -p <pid>` 会打印"本地 attach"通道与本地连接器地址，且结论里不再建议去配 `jmxremote.port`；
   `LogbackJmxProvider` 的"未找到 JMXConfigurator"提示也按通道分别给建议。
-- 验收（本机实测）：对未开 JMX 端口的临时进程 `doctor -P <pid>` 退出 0 并报告通道；`get -P <pid>` 报"未找到
-  JMXConfigurator"（该进程确实没配）且退出 1；`-P 999999` 打印排查清单退出 1；`-P 0` 退出 2；`-P abc` 由 picocli 退出 2。
+- 验收（本机实测）：对未开 JMX 端口的临时进程 `doctor -p <pid>` 退出 0 并报告通道；`get -p <pid>` 报"未找到
+  JMXConfigurator"（该进程确实没配）且退出 1；`-p 999999` 打印排查清单退出 1；`-p 0` 退出 2；`-p abc` 由 picocli 退出 2。
 - `LocalPidConnectorTest` 会 attach 测试进程自身；环境不支持时 `Assume` 跳过，不会让 CI 变红。
 
 ### 已完成（P0，先于 P1 落地）：连接超时

@@ -19,7 +19,7 @@ import picocli.CommandLine.Option;
  * <pre>
  * <pre>
  * 用法: jmx-logger -s host:port [-u user] [-p pass] <get|set|reload|doctor> ...
- * 用法: jmx-logger -P pid <get|set|reload|doctor> ...          （本地 attach，目标侧无需开端口）
+ * 用法: jmx-logger -p pid <get|set|reload|doctor> ...          （本地 attach，目标侧无需开端口）
  * </pre>
  *
  * <p>错误处理统一走 {@link CommandSupport}：子命令直接抛异常，
@@ -44,13 +44,13 @@ public class JmxLoggerCli implements Runnable {
             description = "目标 JVM 的 JMX 地址，默认值为 ${DEFAULT-VALUE}")
     private String server = "127.0.0.1:19000";
 
-    @Option(names = {"-u", "--username"}, description = "JMX 用户名（可选）")
+    @Option(names = {"--username"}, description = "JMX 用户名（可选）")
     private String username;
 
-    @Option(names = {"-p", "--password"}, description = "JMX 密码（可选）")
+    @Option(names = {"--password"}, description = "JMX 密码（可选）")
     private String password;
 
-    @Option(names = {"-P", "--pid"}, paramLabel = "pid",
+    @Option(names = {"-p", "--pid"}, paramLabel = "pid",
             description = "目标 JVM 的进程号：本地 attach 并现场启动管理代理，"
                     + "目标侧无需预先开 JMX 端口；指定后优先于 -s")
     private Long pid;
@@ -90,8 +90,8 @@ public class JmxLoggerCli implements Runnable {
      * 供 {@code doctor} 这类"先看看目标上有什么"的命令使用——直接建 Provider
      * 会因为 MBean 不存在而直接报错，就诊断不出原因了。
      *
-     * <p>给了 {@code -P/--pid} 就走本地 attach（目标侧零配置），否则按 {@code -s/--server} 走 RMI。
-     * {@code -P} 优先：用户既然显式指定了进程，就不该再要求目标开端口。
+     * <p>给了 {@code -p/--pid} 就走本地 attach（目标侧零配置），否则按 {@code -s/--server} 走 RMI。
+     * {@code -p} 优先：用户既然显式指定了进程，就不该再要求目标开端口。
      */
     public TargetConnector openConnector() throws Exception {
         if (pid != null) {

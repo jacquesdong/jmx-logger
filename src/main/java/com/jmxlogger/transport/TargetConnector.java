@@ -7,7 +7,7 @@ import java.io.IOException;
  * 到目标 JVM 的<b>传输层</b>抽象：只负责"怎么连上"，不关心连上之后要操作哪个 MBean。
  *
  * <p>目前只有一个实现 {@link RemoteJmxConnector}（{@code -s host:port} 的 RMI 连接）；
- * 计划 P2 会加 {@code LocalPidConnector}（{@code -P pid} 的本地 attach）。
+ * 计划 P2 会加 {@code LocalPidConnector}（{@code -p pid} 的本地 attach）。
  * 把传输层独立出来后，上层 Provider 不需要知道连接是怎么建立的。
  */
 public interface TargetConnector extends AutoCloseable {

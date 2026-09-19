@@ -30,18 +30,21 @@ fat jar 内已包含 picocli，拷到任意有 JRE/JDK 的机器上 `java -jar` 
 ## 用法
 
 ```
-用法: jmx-logger [-hvV] [-p=<password>] [-P=pid] [-s=<server>] [--timeout=秒] [-u=<username>] [COMMAND]
+用法: jmx-logger [-hvV] [-p=pid] [-s=<server>] [--timeout=秒] [--username=<username>] [COMMAND]
 ```
 
 | 全局选项 | 说明 | 默认 |
 | --- | --- | --- |
 | `-s, --server` | 目标 JVM 的 JMX 地址 `host:port`（远程 RMI 通道） | `127.0.0.1:19000` |
-| `-P, --pid` | 目标 JVM 的进程号（本地 attach 通道）；指定后**优先于** `-s` | 空 |
-| `-u, --username` | JMX 用户名（开启认证时） | 空 |
-| `-p, --password` | JMX 密码（开启认证时） | 空 |
+| `-p, --pid` | 目标 JVM 的进程号（本地 attach 通道）；指定后**优先于** `-s` | 空 |
+| `--username` | JMX 用户名（开启认证时） | 空 |
+| `--password` | JMX 密码（开启认证时） | 空 |
 | `--timeout` | 连接超时（秒），`0` 表示不限制 | `10` |
 | `-v, --verbose` | 出错时打印完整堆栈（默认只打一行原因） | 关 |
 | `-h, --help` / `-V, --version` | 帮助 / 版本 | — |
+
+短选项只给"指向哪个 JVM"用（`-s` / `-p`）；认证参数只有长选项，
+避免 `-p` 在密码与进程号之间来回摇摆。
 
 连接串形如 `service:jmx:rmi:///jndi/rmi://<server>/jmxrmi`。
 
@@ -53,14 +56,14 @@ RMI 握手本身没有超时参数，网络不通时会一直挂到 TCP 默认�
 | 通道 | 用法 | 目标侧需要 |
 | --- | --- | --- |
 | 远程 RMI | `-s host:port` | `<jmxConfigurator/>` **+ 暴露 JMX 端口** |
-| 本地 attach | `-P <pid>` | 只需 `<jmxConfigurator/>`（**不用开端口**） |
+| 本地 attach | `-p <pid>` | 只需 `<jmxConfigurator/>`（**不用开端口**） |
 
 目标进程没开 JMX 端口时，用 `jps -l` 找到 PID 直接连：
 
 ```bash
-jmx-logger -P 2235675 get                       # 目标零端口配置也能查
-jmx-logger -P 2235675 set com.example DEBUG
-jmx-logger -P 2235675 doctor
+jmx-logger -p 2235675 get                       # 目标零端口配置也能查
+jmx-logger -p 2235675 set com.example DEBUG
+jmx-logger -p 2235675 doctor
 ```
 
 原理：attach 到目标进程后调用 `VirtualMachine#startLocalManagementAgent()`，
@@ -159,7 +162,7 @@ Boot 各版本的端点命名不同（1.5 是 `name=loggersEndpoint`，2.7 是 `
 
 ## 目标应用侧配置
 
-> 用 `-P/--pid` 本地 attach 时，只需做第 1 步（`<jmxConfigurator/>`），第 2 步"暴露 JMX 端口"可以整段跳过。
+> 用 `-p/--pid` 本地 attach 时，只需做第 1 步（`<jmxConfigurator/>`），第 2 步"暴露 JMX 端口"可以整段跳过。
 
 ### 1. 启用 Logback 的 JMX 配置器
 
@@ -200,7 +203,7 @@ ch.qos.logback.classic:Name=<contextName>,Type=ch.qos.logback.classic.jmx.JMXCon
 | `java.rmi.server.hostname` | 目标机器的对外 IP/主机名；多网卡或容器里不设会拿到 `127.0.0.1`，表现为"能连上但立刻断开" |
 | `authenticate` | 生产环境建议 `true`，并配合 `jmxremote.access` / `jmxremote.password` |
 
-> 未开启认证时不要同时给 `-u/-p`，反之亦然。
+> 未开启认证时不要传 `--username`/`--password`，反之亦然。
 
 ## 兼容性
 
@@ -248,17 +251,18 @@ java -jar target/jmx-logger.jar -s 10.0.0.5:19000 get || echo "失败，退出�
 | `未找到 Logback JMXConfigurator MBean` | 目标 `logback.xml` 缺 `<jmxConfigurator/>`，或该 JVM 用的不是 Logback |
 | 连上后很快断开 / 卡住 | 未设 `java.rmi.server.hostname`，或 `rmi.port` 与 `port` 不一致 |
 | `set` 后级别没变 | 确认改的是正确的 logger 名；子 logger 会覆盖父 logger；`reload` 会重置为配置文件中的值 |
-| 认证失败 | 检查 `jmxremote.password` 文件权限必须为 `600`，且 `-u/-p` 与目标配置一致 |
+| 认证失败 | 检查 `jmxremote.password` 文件权限必须为 `600`，且 `--username`/`--password` 与目标配置一致 |
+| `非法的 PID "..."` | `-p` 现在是**进程号**不是密码：老脚本里的 `-p <密码>` 会走到这里，改用 `--password` |
 | `无法 attach 到本地进程 <pid>` | 按报错里的 5 条排查清单逐项核对：PID 是否存在、是否同用户、是否用 JDK 运行、`/tmp` 是否可写、容器是否同一 PID namespace |
 | `attach ... 需要 com.sun.tools.attach.VirtualMachine` | 用 **JRE** 跑了 jmx-logger（缺 `tools.jar`）：换成完整 JDK，或改用 `-s host:port` |
 | `已 attach 到进程 N，但目标未提供本地 JMX 连接器地址` | 目标 JVM 禁用了管理代理（`-XX:+DisableAttachMechanism`、`-Dcom.sun.management.jmxremote=false`），或 JDK 过旧 |
 
 ## 安全建议
 
-`-p` 明文密码会出现在 `ps` 输出里。当前版本只支持 `-p`，建议用交互式读取绕开：
+`--password` 明文密码会出现在 `ps` 输出里（`-p` 已让给进程号）。当前版本只支持命令行传密码，建议用交互式读取绕开：
 
 ```bash
-read -s JMX_PASS && java -jar target/jmx-logger.jar -s 10.0.0.5:19000 -u admin -p "$JMX_PASS" get
+read -s JMX_PASS && java -jar target/jmx-logger.jar -s 10.0.0.5:19000 --username admin --password "$JMX_PASS" get
 ```
 
 支持环境变量/凭证文件读取已列入路线图。
@@ -266,12 +270,12 @@ read -s JMX_PASS && java -jar target/jmx-logger.jar -s 10.0.0.5:19000 -u admin -
 ## 路线图
 
 按阶段推进，每阶段可独立验收与回滚（详见 `doc/plan_v1.0.1.md`）。**P1、P2 已完成**：
-transport/provider 抽象、`doctor` 诊断子命令、统一退出码与 `--verbose`、`-P/--pid` 本地 attach。
+transport/provider 抽象、`doctor` 诊断子命令、统一退出码与 `--verbose`、`-p/--pid` 本地 attach。
 
 | 阶段 | 内容 |
 | --- | --- |
 | P1 | ~~抽出 transport/provider 抽象~~ ✅；~~新增 `doctor` 诊断子命令~~ ✅；~~统一退出码与 `--verbose`~~ ✅ |
-| P2 | ~~`-P/--pid` 本地 attach（目标未开 JMX 端口时，通过 attach API 动态拉起管理代理，目标侧零配置）~~ ✅ |
+| P2 | ~~`-p/--pid` 本地 attach（目标未开 JMX 端口时，通过 attach API 动态拉起管理代理，目标侧零配置）~~ ✅ |
 | P3 | Spring Boot Actuator 兜底通道（Boot 1.5 `name=loggersEndpoint` / Boot 2.7 `name=Loggers`，签名由 `doctor` 实测驱动），目标无 `<jmxConfigurator/>` 时自动切换 |
 | P4 | `--json` 输出、`set inherit`（重置为继承级别）、`--object-name`（多 LoggerContext） |
 | P5 | Boot 3.x / Logback 1.4+ 的 HTTP 通道预留 |

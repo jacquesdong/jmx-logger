@@ -206,7 +206,7 @@ public class DoctorCommand implements Callable<Integer> {
     }
 
     /**
-     * @param localAttach 本次是 {@code -P pid} 本地 attach 连上的：此时"开 JMX 端口"已经不是问题，
+     * @param localAttach 本次是 {@code -p pid} 本地 attach 连上的：此时"开 JMX 端口"已经不是问题，
      *                    建议里不该再让人去配 {@code -Dcom.sun.management.jmxremote.port}。
      */
     private void appendAdvice(StringBuilder out, Set<ObjectName> logbackConfigurators,

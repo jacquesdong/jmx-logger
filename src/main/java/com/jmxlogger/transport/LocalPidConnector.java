@@ -14,7 +14,7 @@ import java.util.Properties;
 import java.util.concurrent.Callable;
 
 /**
- * 通过<b>本地 attach</b> 连到目标 JVM（{@code -P pid}）：目标不必预先开 JMX 端口。
+ * 通过<b>本地 attach</b> 连到目标 JVM（{@code -p pid}）：目标不必预先开 JMX 端口。
  *
  * <p>原理：attach 到目标进程后调用 {@code VirtualMachine#startLocalManagementAgent()}，
  * 让目标 JVM 现场启动一个<b>仅本机可连</b>的 JMX 代理，再把返回的连接器地址
@@ -105,7 +105,7 @@ public class LocalPidConnector implements TargetConnector {
     /** PID 是用法层面的输入，非法值在建连之前就拒绝（退出码 2，不会去 attach）。 */
     private static String requirePid(String pid) {
         if (pid == null || pid.trim().isEmpty()) {
-            throw new IllegalArgumentException("必须通过 -P/--pid 指定目标 JVM 的 PID");
+            throw new IllegalArgumentException("必须通过 -p/--pid 指定目标 JVM 的 PID");
         }
         String value = pid.trim();
         try {

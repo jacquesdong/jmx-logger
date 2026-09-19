@@ -19,7 +19,7 @@ import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
 /**
- * 本地 attach 通道（{@code -P pid}）的契约测试。
+ * 本地 attach 通道（{@code -p pid}）的契约测试。
  *
  * <p>attach 依赖 OS 权限、JDK（非 JRE）、PID namespace，CI/容器里可能无法使用，
  * 因此所有"真的要 attach"的用例先探测自身进程，环境不支持就跳过而不是让构建失败。
@@ -55,8 +55,8 @@ public class LocalPidConnectorTest {
     /** 非法 PID 走 CLI 时是用法错误（退出码 2），不该去 attach。 */
     @Test
     public void invalidPidIsUsageError() {
-        assertEquals(ExitCodes.USAGE, JmxLoggerCli.commandLine().execute("-P", "0", "get"));
-        assertEquals(ExitCodes.USAGE, JmxLoggerCli.commandLine().execute("-P", "not-a-pid", "get"));
+        assertEquals(ExitCodes.USAGE, JmxLoggerCli.commandLine().execute("-p", "0", "get"));
+        assertEquals(ExitCodes.USAGE, JmxLoggerCli.commandLine().execute("-p", "not-a-pid", "get"));
     }
 
     @Test
@@ -94,11 +94,11 @@ public class LocalPidConnectorTest {
         }
     }
 
-    /** {@code doctor -P <自身 pid>} 是 P2 的端到端验收：连得上就退出 0，并说明走的是本地 attach。 */
+    /** {@code doctor -p <自身 pid>} 是 P2 的端到端验收：连得上就退出 0，并说明走的是本地 attach。 */
     @Test
     public void doctorReportsLocalAttachChannel() throws Exception {
         assumeAttachSupported();
-        String output = capture(new String[]{"-P", currentPid(), "doctor"});
+        String output = capture(new String[]{"-p", currentPid(), "doctor"});
         assertEquals(ExitCodes.OK, exitCode);
         assertTrue("诊断报告应说明是本地 attach 通道，实际输出为:\n" + output,
                 output.contains("本地 attach"));
@@ -142,7 +142,7 @@ public class LocalPidConnectorTest {
     @Test
     public void parsedPidIsVisibleOnTopCommand() {
         CommandLine cmd = new CommandLine(new JmxLoggerCli());
-        cmd.parseArgs("-P", "4321", "get");
+        cmd.parseArgs("-p", "4321", "get");
         assertEquals(Long.valueOf(4321L), ((JmxLoggerCli) cmd.getCommand()).getPid());
     }
 }
