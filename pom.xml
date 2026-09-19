@@ -41,6 +41,18 @@
         <plugins>
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-jar-plugin</artifactId>
+                <version>3.5.0</version>
+                <configuration>
+                    <!-- <finalName> 让 fat jar 与 maven-jar-plugin 的薄 jar 同名；
+                         若不强制重建，第二次 mvn package 会把上一轮的 fat jar 原样保留
+                         （"输入 jar" 里已含 picocli），shade 再打一遍 → 报 229 个 overlapping，
+                         且删除的类会残留。强制重建保证 shade 的输入始终是纯薄的 classes jar -->
+                    <forceCreation>true</forceCreation>
+                </configuration>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-compiler-plugin</artifactId>
                 <version>3.11.0</version>
             </plugin>
