@@ -13,7 +13,7 @@ import java.util.Set;
 /**
  * 通过 logback 自带的 {@code JMXConfigurator} MBean 读写 Logger 级别并重载配置。
  *
- * <p>适用 logback 1.1.x / 1.2.x（含 Spring Boot 1.5.6 与 Spring Boot 2.7.18 受管的 1.2.12）。
+ * <p>适用 logback 1.1.x / 1.2.x（含 Spring Boot 1.5.6 / 1.5.20 自带的 1.1.11 与 Spring Boot 2.7.18 受管的 1.2.12）。
  * logback ≥ 1.3 已彻底移除 {@code JMXConfigurator}，届时走 P3 的 actuator 兜底通道。
  *
  * <p>客户端不引入 Logback 依赖，全部通过 {@link MBeanServerConnection#invoke} 反射式调用。

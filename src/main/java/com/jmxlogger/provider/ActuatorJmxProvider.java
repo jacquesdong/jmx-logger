@@ -34,11 +34,11 @@ import java.util.Set;
  *       （Spring Boot 2.7 可能是 {@code String} 也可能是 {@code LogLevel} 枚举）。</li>
  * </ul>
  *
- * <p>已在真实目标（Spring Boot 1.5.6 + logback 1.1.11，本机 19000）上实测过的形态：
+ * <p>已在真实目标（Spring Boot 1.5.6 / 1.5.20 + logback 1.1.11，本机 19000）上实测过的形态：
  * <pre>
  * ATTR Loggers: java.lang.Object → LinkedHashMap{levels=[OFF, ERROR, …],
  *                                              loggers={名字 → {configuredLevel, effectiveLevel}}}
- * OP   getLoggers() → 同上（一次调用拿全量 783 个 logger）
+ * OP   getLoggers() → 同上（一次调用拿全量 logger；条数取决于目标应用，不写死）
  * OP   getLogger(String) → LinkedHashMap{configuredLevel, effectiveLevel}
  * OP   setLogLevel(String, String) → void
  * </pre>

@@ -20,7 +20,7 @@ import java.util.Map;
 import java.util.Set;
 
 /**
- * Spring Boot <b>1.5</b> 的 {@code loggersEndpoint} 测试桩，形态完全照抄真实目标（1.5.6，本机 19000）的实测结果：
+ * Spring Boot <b>1.5</b> 的 {@code loggersEndpoint} 测试桩，形态完全照抄真实目标（1.5.6 / 1.5.20，本机 19000）的实测结果：
  *
  * <pre>
  * ATTR Loggers: java.lang.Object → LinkedHashMap{levels=[OFF, ERROR, …],

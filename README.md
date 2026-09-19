@@ -7,7 +7,7 @@
 
 - 运行时依赖：仅 [picocli](https://picocli.info/)（打包进 fat jar）
 - 构建要求：JDK 8+（编译目标固定为 Java 8）
-- 目标应用：任何带 Logback（1.1.x / 1.2.x）的 JVM，面向 Spring Boot 1.5.6 与 2.7.18
+- 目标应用：任何带 Logback（1.1.x / 1.2.x）的 JVM，实测覆盖 Spring Boot 1.5.6 与 1.5.20，并兼容 2.7.18
 
 ---
 
@@ -92,8 +92,8 @@ attach API 全程反射调用（JDK 8 位于 `tools.jar`，JDK 9+ 归入 `jdk.at
 
 端点命名与操作名两套都认（Spring Boot 1.5 的 `getLoggers()`/`getLogger`/`setLogLevel`
 与 Spring Boot 2.7 的 `loggers()`/`loggerLevels`/`configureLogLevel`），
-已在真实 Spring Boot 1.5.6 目标上实测：一次调用即可拿到全部 logger（786 个），
-结果与 `logback` 通道一致。
+已在真实 Spring Boot 1.5.6 与 1.5.20 目标上实测：一次调用即可拿到全部 logger，
+条数与 `logback` 通道一致（数量取决于目标应用自身的类加载情况，不固定）。
 
 `-t auto`（默认）**先 logback 后 actuator**：logback 能力最全（含配置重载），
 actuator 只作为兜底；两条都没有时报错里同时给出两边的缺失原因与目标侧该加的配置。
@@ -167,15 +167,15 @@ jmx-logger -s 10.0.0.5:19000 doctor
    并打印命中 MBean 的**完整 MBeanInfo**（属性及其可写性、操作名 + 完整参数类型 + 返回类型）；
 3. **结论与建议**：哪条通道可用、缺什么，以及目标侧该加的最小配置。
 
-真实目标（Spring Boot 1.5.6 + logback 1.1.11）上的一段输出：
+真实目标（Spring Boot 1.5.20 + logback 1.1.11）上的一段输出（1.5.6 那台的端点命名与操作签名逐字一致）：
 
 ```
 [连接]
   目标: 127.0.0.1:19000
   URL: service:jmx:rmi:///jndi/rmi://127.0.0.1:19000/jmxrmi
-  进程: 2235675@ubuntu
+  进程: 2389786@ubuntu
   JVM: OpenJDK 64-Bit Server VM 25.432-b06
-  classpath 识别: logback-classic 1.1.11, spring-boot-actuator 1.5.6.RELEASE
+  classpath 识别: spring-boot 1.5.20.RELEASE, spring-boot-actuator 1.5.20.RELEASE, logback-classic 1.1.11
 [候选 MBean]
   logback JMXConfigurator    ch.qos.logback.classic:Type=...JMXConfigurator,*  ->  1 个
   Spring Boot loggers 端点          org.springframework.boot:type=Endpoint,*  ->  1 个
@@ -245,7 +245,7 @@ ch.qos.logback.classic:Name=<contextName>,Type=ch.qos.logback.classic.jmx.JMXCon
 
 | 目标应用 | 内置 Logback | `JMXConfigurator` | 本工具 |
 | --- | --- | --- | --- |
-| Spring Boot 1.5.6（JDK 8） | 1.1.x | 有 | 支持 |
+| Spring Boot 1.5.6 / 1.5.20（JDK 8） | 1.1.x | 有 | 支持（实测） |
 | Spring Boot 2.7.18（JDK 8+） | 1.2.12 | 有 | 支持，无需改动 |
 | Spring Boot 3.x（JDK 17+） | 1.4.x+ | **已移除** | 暂不支持 |
 
