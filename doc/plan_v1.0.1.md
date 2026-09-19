@@ -117,7 +117,9 @@ flowchart LR
     │   └── OutputFormatter.java                     # [NEW] 表格与 JSON 两种输出
     └── src/test/java/com/jmxlogger/
         ├── ProviderSelectionTest.java               # [NEW] 用平台 MBeanServer 注册桩 MBean 验证 auto 探测顺序
-        └── LogbackJmxProviderTest.java              # [NEW] 验证 list/get/set/重置行为
+        ├── LogbackJmxProviderTest.java              # [DONE] 验证 list/get/set/重置行为
+        ├── RemoteJmxConnectorTest.java              # [DONE] 建连/超时/失败文案
+        └── DoctorCommandTest.java                   # [DONE] logback 可用 / 缺失 / 仅 actuator 三种情形
 ```
 
 ## 关键执行要点（防回归）
@@ -152,6 +154,33 @@ flowchart LR
 
 退出码约定（在 `ExitCodes` 与 README 中同步定稿）：`0` 成功、`1` 运行时错误（连不上、MBean 不存在、JMX 调用失败）、`2` 用法错误（非法级别、参数缺失）、**`3` 未找到（logger 不存在 / 过滤无匹配）**。选独立码而非复用 `1`，是为了让脚本能区分"目标上没这个 logger"与"根本没连上"。
 
+
+### 已完成（P1 之一）：transport/provider 抽象
+
+- `transport/`：`TargetConnector` 接口 + `RemoteJmxConnector`（原 `JmxClient` 的建连逻辑整段搬过来，URL/凭证/超时与两套报错文案原样保留）。
+- `provider/`：`LoggerProvider` 接口 + `Capabilities` + `LogbackJmxProvider`（原 MBean 探测与 4 个 invoke 签名搬过来）。
+- `JmxClient` 缩为薄门面，`get/set/reload` 三个命令本次**零改动**，原有 16 个刻画用例原样全绿。
+- 暂未引入 `LoggerInfo` 与 `ProviderFactory`：当前只有一种 provider，提前加是死代码；留到 P3 随 `BootActuatorJmxProvider` 一起落地。
+
+### 已完成（P1 之二）：doctor 诊断子命令
+
+- 只读探测：连接信息（目标/URL/进程/JVM）→ 候选 MBean 清单 → 命中 MBean 的**完整 MBeanInfo** → 结论与目标侧配置建议。
+- **classpath 版本识别**：读 `java.lang:type=Runtime` 的 `ClassPath` 属性，认出 `logback-classic` / `spring-boot-actuator` 版本；logback ≥ 1.3 直接提示 `JMXConfigurator` 已被移除。只读 jar 名，不打印整条 classpath。
+- **Boot 端点双命名探测**：不按版本号分支，而是查 `org.springframework.boot:type=Endpoint,*` 后按 `name` 含 `logger` 过滤，因此 Boot 1.5 的 `name=loggersEndpoint` 与 Boot 2.7 的 `name=Loggers` 都能命中。
+- 报告生成（`diagnose(TargetConnector)`）与打印（`run()`）分离，测试可直接断言报告文本，不必面对 `System.exit`。
+- 退出码沿用现状：连不上为 `1`，诊断完成（即便报告"无可用通道"）为 `0` —— 退出码统一收口是 P1 的下一项（`ExitCodes` + `IExecutionExceptionHandler`），届时一并定稿。
+
+真实目标（Boot 1.5.6 + logback 1.1.11，本机 19000）上的实测输出复现并**再次印证**了上文结论，且补充了此前没记全的端点属性：
+
+```
+org.springframework.boot:type=Endpoint,name=loggersEndpoint
+  ATTR EndpointClass: java.lang.String [只读] / Loggers: java.lang.Object [只读] / Sensitive: boolean [只读]
+  OP   java.lang.Object getLoggers()
+       java.lang.Object getLogger(java.lang.String)
+       void setLogLevel(java.lang.String, java.lang.String)
+```
+
+⇒ P3 编码时以 `doctor` 在本机/升级后环境上的输出为准，不要照抄本文档里的签名。
 
 ### 已完成（P0，先于 P1 落地）：连接超时
 

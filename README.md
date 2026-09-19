@@ -85,6 +85,48 @@ jmx-logger -s 10.0.0.5:19000 reload /opt/app/logback.xml  # reloadByFileName(路
 
 > 文件路径是**目标 JVM 文件系统**上的路径，由目标进程自行读取；不要填本机路径。
 
+### doctor — 诊断（只读）
+
+```bash
+jmx-logger -s 10.0.0.5:19000 doctor
+```
+
+只读探测，**不改动目标 JVM 任何状态**。依次输出：
+
+1. **连接**：目标地址、JMX Service URL、进程（`pid@host`）、JVM 版本，以及从 classpath 认出的
+   `logback-classic` / `spring-boot-actuator` 版本（logback ≥ 1.3 会提示 `JMXConfigurator` 已被移除）；
+2. **候选 MBean**：logback `JMXConfigurator` 与 Spring Boot 的 loggers 端点各命中几个，
+   并打印命中 MBean 的**完整 MBeanInfo**（属性及其可写性、操作名 + 完整参数类型 + 返回类型）；
+3. **结论与建议**：哪条通道可用、缺什么，以及目标侧该加的最小配置。
+
+真实目标（Boot 1.5.6 + logback 1.1.11）上的一段输出：
+
+```
+[连接]
+  目标: 127.0.0.1:19000
+  URL: service:jmx:rmi:///jndi/rmi://127.0.0.1:19000/jmxrmi
+  进程: 2235675@ubuntu
+  JVM: OpenJDK 64-Bit Server VM 25.432-b06
+  classpath 识别: logback-classic 1.1.11, spring-boot-actuator 1.5.6.RELEASE
+[候选 MBean]
+  logback JMXConfigurator    ch.qos.logback.classic:Type=...JMXConfigurator,*  ->  1 个
+  Boot loggers 端点          org.springframework.boot:type=Endpoint,*  ->  1 个
+
+  ch.qos.logback.classic:Name=default,Type=ch.qos.logback.classic.jmx.JMXConfigurator
+    属性:
+      LoggerList: java.util.List  [只读]
+      Statuses: java.util.List  [只读]
+    操作:
+      getLoggerLevel(java.lang.String) -> java.lang.String
+      setLoggerLevel(java.lang.String, java.lang.String) -> void
+      ...
+```
+
+Boot 各版本的端点命名不同（1.5 是 `name=loggersEndpoint`，2.7 是 `name=Loggers`），
+因此 `doctor` 按 `org.springframework.boot:type=Endpoint,*` 全量查再按名字过滤，不写死某一种拼法。
+
+> 连不上或找不到 MBean 时，先跑 `doctor`。
+
 ## 目标应用侧配置
 
 ### 1. 启用 Logback 的 JMX 配置器
@@ -158,6 +200,7 @@ ch.qos.logback.classic:Name=<contextName>,Type=ch.qos.logback.classic.jmx.JMXCon
 
 | 现象 | 原因与处理 |
 | --- | --- |
+| 不知道该从哪查起 | 先跑 `doctor`：它会列出候选 MBean、打印操作签名，并给出目标侧该加的配置 |
 | `无法连接到 JMX 服务器` | 端口不通 / 目标未加 `com.sun.management.jmxremote` / 防火墙未放通 RMI 端口；用 `nc -vz host port` 先确认连通性 |
 | `连接 JMX 服务器超时（超过 N ms）` | TCP 能建连但对面不回应，典型是防火墙丢包或 `jmxremote.rmi.port` 未放通；按报错里的提示逐项核对，或先用 `--timeout 30` 排除"只是慢" |
 | `未找到 Logback JMXConfigurator MBean` | 目标 `logback.xml` 缺 `<jmxConfigurator/>`，或该 JVM 用的不是 Logback |
@@ -177,13 +220,14 @@ read -s JMX_PASS && java -jar target/jmx-logger.jar -s 10.0.0.5:19000 -u admin -
 
 ## 路线图
 
-以下能力**尚未实现**，按阶段推进，每阶段可独立验收与回滚（详见 `doc/plan_v1.0.1.md`）：
+按阶段推进，每阶段可独立验收与回滚（详见 `doc/plan_v1.0.1.md`）。**P1 已完成两项**：
+transport/provider 抽象与 `doctor` 诊断子命令；统一退出码与 `--verbose` 待做。
 
 | 阶段 | 内容 |
 | --- | --- |
-| P1 | 抽出 transport/provider 抽象；新增 `doctor` 诊断子命令；统一退出码与 `--verbose` |
+| P1 | ~~抽出 transport/provider 抽象~~ ✅；~~新增 `doctor` 诊断子命令~~ ✅；统一退出码与 `--verbose` |
 | P2 | `-P/--pid` 本地 attach（目标未开 JMX 端口时，通过 attach API 动态拉起管理代理，目标侧零配置） |
-| P3 | Spring Boot Actuator 兜底通道（`type=Endpoint,name=Loggers`），目标无 `<jmxConfigurator/>` 时自动切换 |
+| P3 | Spring Boot Actuator 兜底通道（Boot 1.5 `name=loggersEndpoint` / Boot 2.7 `name=Loggers`，签名由 `doctor` 实测驱动），目标无 `<jmxConfigurator/>` 时自动切换 |
 | P4 | `--json` 输出、`set inherit`（重置为继承级别）、`--object-name`（多 LoggerContext） |
 | P5 | Boot 3.x / Logback 1.4+ 的 HTTP 通道预留 |
 
