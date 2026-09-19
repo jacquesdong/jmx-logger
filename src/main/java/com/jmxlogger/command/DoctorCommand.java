@@ -2,6 +2,7 @@ package com.jmxlogger.command;
 
 import com.jmxlogger.JmxLoggerCli;
 import com.jmxlogger.support.ExitCodes;
+import com.jmxlogger.transport.LocalPidConnector;
 import com.jmxlogger.transport.RemoteJmxConnector;
 import com.jmxlogger.transport.TargetConnector;
 import picocli.CommandLine.Command;
@@ -63,7 +64,7 @@ public class DoctorCommand implements Callable<Integer> {
      */
     @Override
     public Integer call() throws Exception {
-        try (RemoteJmxConnector connector = parent.openConnector()) {
+        try (TargetConnector connector = parent.openConnector()) {
             System.out.print(diagnose(connector));
         }
         return ExitCodes.OK;
@@ -83,6 +84,9 @@ public class DoctorCommand implements Callable<Integer> {
         out.append("  目标: ").append(connector.describe()).append('\n');
         if (connector instanceof RemoteJmxConnector) {
             out.append("  URL: ").append(((RemoteJmxConnector) connector).url()).append('\n');
+        } else if (connector instanceof LocalPidConnector) {
+            out.append("  通道: 本地 attach（目标侧无需预开 JMX 端口）\n");
+            out.append("  本地连接器地址: ").append(((LocalPidConnector) connector).address()).append('\n');
         }
         appendJvmInfo(out, mbsc);
         appendClasspathHints(out, mbsc);
@@ -104,7 +108,7 @@ public class DoctorCommand implements Callable<Integer> {
         }
 
         section(out, "结论与建议");
-        appendAdvice(out, logbackConfigurators, loggerEndpoints);
+        appendAdvice(out, logbackConfigurators, loggerEndpoints, connector instanceof LocalPidConnector);
         return out.toString();
     }
 
@@ -201,8 +205,12 @@ public class DoctorCommand implements Callable<Integer> {
         return matched;
     }
 
+    /**
+     * @param localAttach 本次是 {@code -P pid} 本地 attach 连上的：此时"开 JMX 端口"已经不是问题，
+     *                    建议里不该再让人去配 {@code -Dcom.sun.management.jmxremote.port}。
+     */
     private void appendAdvice(StringBuilder out, Set<ObjectName> logbackConfigurators,
-                              Set<ObjectName> loggerEndpoints) {
+                              Set<ObjectName> loggerEndpoints, boolean localAttach) {
         boolean hasLogback = !logbackConfigurators.isEmpty();
         boolean hasActuator = !loggerEndpoints.isEmpty();
 
@@ -229,6 +237,11 @@ public class DoctorCommand implements Callable<Integer> {
         }
 
         out.append('\n');
+        if (localAttach) {
+            out.append("  本地 attach 已直连目标进程，只需在目标的 logback.xml 中加 <jmxConfigurator/>，");
+            out.append("重启后即可 get / set / reload。\n");
+            return;
+        }
         out.append("  目标侧二选一即可：\n");
         out.append("    1) logback 通道（推荐，支持 reload）：logback.xml 中加 <jmxConfigurator/>，\n");
         out.append("       并以 -Dcom.sun.management.jmxremote.port=<port> 启动（rmi.port 与 port 保持一致）；\n");

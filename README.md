@@ -30,12 +30,13 @@ fat jar 内已包含 picocli，拷到任意有 JRE/JDK 的机器上 `java -jar` 
 ## 用法
 
 ```
-用法: jmx-logger [-hvV] [-p=<password>] [-s=<server>] [--timeout=秒] [-u=<username>] [COMMAND]
+用法: jmx-logger [-hvV] [-p=<password>] [-P=pid] [-s=<server>] [--timeout=秒] [-u=<username>] [COMMAND]
 ```
 
 | 全局选项 | 说明 | 默认 |
 | --- | --- | --- |
-| `-s, --server` | 目标 JVM 的 JMX 地址 `host:port` | `127.0.0.1:19000` |
+| `-s, --server` | 目标 JVM 的 JMX 地址 `host:port`（远程 RMI 通道） | `127.0.0.1:19000` |
+| `-P, --pid` | 目标 JVM 的进程号（本地 attach 通道）；指定后**优先于** `-s` | 空 |
 | `-u, --username` | JMX 用户名（开启认证时） | 空 |
 | `-p, --password` | JMX 密码（开启认证时） | 空 |
 | `--timeout` | 连接超时（秒），`0` 表示不限制 | `10` |
@@ -46,6 +47,34 @@ fat jar 内已包含 picocli，拷到任意有 JRE/JDK 的机器上 `java -jar` 
 
 RMI 握手本身没有超时参数，网络不通时会一直挂到 TCP 默认超时（经常是几分钟），
 所以工具默认给连接加了 10 秒上限，超时即报错退出（退出码 `1`）。对面确实很慢时用 `--timeout 60` 放宽。
+
+### 连接目标的两条通道
+
+| 通道 | 用法 | 目标侧需要 |
+| --- | --- | --- |
+| 远程 RMI | `-s host:port` | `<jmxConfigurator/>` **+ 暴露 JMX 端口** |
+| 本地 attach | `-P <pid>` | 只需 `<jmxConfigurator/>`（**不用开端口**） |
+
+目标进程没开 JMX 端口时，用 `jps -l` 找到 PID 直接连：
+
+```bash
+jmx-logger -P 2235675 get                       # 目标零端口配置也能查
+jmx-logger -P 2235675 set com.example DEBUG
+jmx-logger -P 2235675 doctor
+```
+
+原理：attach 到目标进程后调用 `VirtualMachine#startLocalManagementAgent()`，
+让目标 JVM 现场启动一个**仅本机可连**的 JMX 代理，再连它的本地连接器地址。
+attach API 全程反射调用（JDK 8 位于 `tools.jar`，JDK 9+ 归入 `jdk.attach` 模块），
+所以同一个 fat jar 在 JDK 8 / 11 / 17 上都能用，编译期也不依赖 `tools.jar`。
+
+前提条件（不满足时报错会逐条列出，不会甩堆栈）：
+
+1. jmx-logger 与目标进程**同一 OS 用户**（非 root 不能 attach 别人的进程）；
+2. 用**完整 JDK** 运行（JRE 没有 attach 能力）；
+3. `/tmp` 可写（attach 依赖 `/tmp` 下的 UNIX socket）；
+4. 容器场景需与目标是同一 PID namespace（`--pid=host` 或同一 Pod）；
+5. 目标进程未被 ptrace 限制（docker 默认 seccomp、K8s 安全策略可能拦）。
 
 ### get — 查看级别
 
@@ -129,6 +158,8 @@ Boot 各版本的端点命名不同（1.5 是 `name=loggersEndpoint`，2.7 是 `
 > 连不上或找不到 MBean 时，先跑 `doctor`。
 
 ## 目标应用侧配置
+
+> 用 `-P/--pid` 本地 attach 时，只需做第 1 步（`<jmxConfigurator/>`），第 2 步"暴露 JMX 端口"可以整段跳过。
 
 ### 1. 启用 Logback 的 JMX 配置器
 
@@ -218,6 +249,9 @@ java -jar target/jmx-logger.jar -s 10.0.0.5:19000 get || echo "失败，退出�
 | 连上后很快断开 / 卡住 | 未设 `java.rmi.server.hostname`，或 `rmi.port` 与 `port` 不一致 |
 | `set` 后级别没变 | 确认改的是正确的 logger 名；子 logger 会覆盖父 logger；`reload` 会重置为配置文件中的值 |
 | 认证失败 | 检查 `jmxremote.password` 文件权限必须为 `600`，且 `-u/-p` 与目标配置一致 |
+| `无法 attach 到本地进程 <pid>` | 按报错里的 5 条排查清单逐项核对：PID 是否存在、是否同用户、是否用 JDK 运行、`/tmp` 是否可写、容器是否同一 PID namespace |
+| `attach ... 需要 com.sun.tools.attach.VirtualMachine` | 用 **JRE** 跑了 jmx-logger（缺 `tools.jar`）：换成完整 JDK，或改用 `-s host:port` |
+| `已 attach 到进程 N，但目标未提供本地 JMX 连接器地址` | 目标 JVM 禁用了管理代理（`-XX:+DisableAttachMechanism`、`-Dcom.sun.management.jmxremote=false`），或 JDK 过旧 |
 
 ## 安全建议
 
@@ -231,13 +265,13 @@ read -s JMX_PASS && java -jar target/jmx-logger.jar -s 10.0.0.5:19000 -u admin -
 
 ## 路线图
 
-按阶段推进，每阶段可独立验收与回滚（详见 `doc/plan_v1.0.1.md`）。**P1 已全部完成**：
-transport/provider 抽象、`doctor` 诊断子命令、统一退出码与 `--verbose`。
+按阶段推进，每阶段可独立验收与回滚（详见 `doc/plan_v1.0.1.md`）。**P1、P2 已完成**：
+transport/provider 抽象、`doctor` 诊断子命令、统一退出码与 `--verbose`、`-P/--pid` 本地 attach。
 
 | 阶段 | 内容 |
 | --- | --- |
 | P1 | ~~抽出 transport/provider 抽象~~ ✅；~~新增 `doctor` 诊断子命令~~ ✅；~~统一退出码与 `--verbose`~~ ✅ |
-| P2 | `-P/--pid` 本地 attach（目标未开 JMX 端口时，通过 attach API 动态拉起管理代理，目标侧零配置） |
+| P2 | ~~`-P/--pid` 本地 attach（目标未开 JMX 端口时，通过 attach API 动态拉起管理代理，目标侧零配置）~~ ✅ |
 | P3 | Spring Boot Actuator 兜底通道（Boot 1.5 `name=loggersEndpoint` / Boot 2.7 `name=Loggers`，签名由 `doctor` 实测驱动），目标无 `<jmxConfigurator/>` 时自动切换 |
 | P4 | `--json` 输出、`set inherit`（重置为继承级别）、`--object-name`（多 LoggerContext） |
 | P5 | Boot 3.x / Logback 1.4+ 的 HTTP 通道预留 |
@@ -257,3 +291,5 @@ transport/provider 抽象、`doctor` 诊断子命令、统一退出码与 `--ver
   注册 `StubLogbackConfigurator` 桩 MBean，覆盖序列化与真实调用链路。
 - 退出码与报错形态由 `CommandSupportTest` 与 `JmxLoggerCliTest` 里的 `execute(...)` 用例锁定
   （用法错误 2 / 运行时错误 1 / 成功 0）。改退出码要同步 `ExitCodes`、本文档与 `doc/plan_v1.0.1.md`。
+- `LocalPidConnectorTest` 会真的 attach 一次测试进程自身：环境不支持（JRE / 容器 / seccomp）时
+  用 JUnit `Assume` 跳过，不会让构建失败。

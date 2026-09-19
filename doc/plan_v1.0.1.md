@@ -198,6 +198,27 @@ org.springframework.boot:type=Endpoint,name=loggersEndpoint
 - 对外行为变化仅两处：`set` 的非法级别从"自己打印并 exit(2)"变为抛 `IllegalArgumentException`（码仍是 2、文案不变、仍不建连）；
   缺少 `-s` 由 1 变 2（本就是用法错误）。其余命令的成功/失败码与改造前一致。
 
+### 已完成（P2）：本地 attach 与 -P/--pid
+
+- `transport/LocalPidConnector`：attach → `VirtualMachine#startLocalManagementAgent()` → 连返回的本地连接器地址
+  （`service:jmx:rmi://...`，仅本机可达）。**目标侧零配置**（不用开 JMX 端口）。
+- **全程反射调用 attach API**：JDK 8 的 `VirtualMachine` 在 `tools.jar` 里、不在默认 classpath 上，
+  实现会先把 `${java.home}/lib/tools.jar`（或上一级）用 `URLClassLoader#addURL` 挂进来再 `Class.forName`；
+  JDK 9+ 该类已在 `jdk.attach` 模块中可直接加载。⇒ 编译期不依赖 `tools.jar`，同一份 fat jar 通吃 JDK 8/11/17。
+- **失败分支先于功能分支**（P2 的主要风险）：PID 非法在建连前拒绝（`IllegalArgumentException` ⇒ 退出码 2）；
+  attach 失败统一翻译成「原因 + 5 条排查清单（PID 是否存在 / 同 OS 用户 / 用 JDK 而非 JRE / `/tmp` 可写 /
+  容器同一 PID namespace）+ 替代方案」；缺 `VirtualMachine` 时明确说"疑似用 JRE 运行"；
+  已 attach 但拿不到本地连接器地址时提示目标是禁用了管理代理。
+- 抽出 `transport/ConnectWithTimeout`（包内可见）：把"建连动作放守护线程 + Future 限时"从 `RemoteJmxConnector`
+  里提出来，`LocalPidConnector` 的 attach / 启动代理 / 连 JMX 三步各自限时，复用同一套超时语义。
+- `JmxLoggerCli#openConnector()` 返回 `TargetConnector`：给了 `-P` 走本地 attach，否则按 `-s` 走 RMI（`-P` 优先）。
+  `JmxClient` 新增 `JmxClient(TargetConnector)` 构造函数，`get/set/reload` 因此天然支持两条通道。
+- `doctor -P <pid>` 会打印"本地 attach"通道与本地连接器地址，且结论里不再建议去配 `jmxremote.port`；
+  `LogbackJmxProvider` 的"未找到 JMXConfigurator"提示也按通道分别给建议。
+- 验收（本机实测）：对未开 JMX 端口的临时进程 `doctor -P <pid>` 退出 0 并报告通道；`get -P <pid>` 报"未找到
+  JMXConfigurator"（该进程确实没配）且退出 1；`-P 999999` 打印排查清单退出 1；`-P 0` 退出 2；`-P abc` 由 picocli 退出 2。
+- `LocalPidConnectorTest` 会 attach 测试进程自身；环境不支持时 `Assume` 跳过，不会让 CI 变红。
+
 ### 已完成（P0，先于 P1 落地）：连接超时
 
 原属 P4 的"超时控制"提前到 P1 之前做——它是体感最差的一项：RMI 握手没有超时参数，

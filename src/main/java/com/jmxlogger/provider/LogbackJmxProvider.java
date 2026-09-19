@@ -55,8 +55,9 @@ public class LogbackJmxProvider implements LoggerProvider {
         if (names.isEmpty()) {
             throw new IllegalStateException(
                     "目标 JVM 中未找到 Logback JMXConfigurator MBean。\n" +
-                    "请确认目标应用的 logback.xml 中已启用 <jmxConfigurator/>，并已通过 " +
-                    "-Dcom.sun.management.jmxremote.port 暴露 JMX。");
+                    "请确认目标应用的 logback.xml 中已启用 <jmxConfigurator/>：\n" +
+                    "用 -P/--pid 本地 attach 时只需这一项（无需开 JMX 端口）；\n" +
+                    "用 -s/--server 连接时还需目标以 -Dcom.sun.management.jmxremote.port 暴露 JMX。");
         }
         return names.iterator().next();
     }

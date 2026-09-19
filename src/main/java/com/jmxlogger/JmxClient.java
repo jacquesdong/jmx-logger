@@ -3,6 +3,7 @@ package com.jmxlogger;
 import com.jmxlogger.provider.LoggerProvider;
 import com.jmxlogger.provider.LogbackJmxProvider;
 import com.jmxlogger.transport.RemoteJmxConnector;
+import com.jmxlogger.transport.TargetConnector;
 
 import java.io.IOException;
 import java.util.List;
@@ -12,7 +13,8 @@ import java.util.List;
  *
  * <p>内部已拆成两层，本类只保留原有方法名与行为，便于上层命令逐步迁移：
  * <ul>
- *   <li>{@link RemoteJmxConnector}：传输层，负责"怎么连上"（{@code -s host:port} 的 RMI 连接、超时）；</li>
+ *   <li>传输层：{@link RemoteJmxConnector}（{@code -s host:port} 的 RMI 连接）与
+ *       {@code LocalPidConnector}（{@code -P pid} 的本地 attach），统一为 {@link TargetConnector}；</li>
  *   <li>{@link LogbackJmxProvider}：Provider 层，负责"连上之后操作哪个 MBean"。 </li>
  * </ul>
  * 新代码请直接用这两个类（或 {@link LoggerProvider} 接口），本类在命令层全部迁移完成后会移除。
@@ -22,7 +24,7 @@ public class JmxClient implements AutoCloseable {
     /** 默认连接超时：10 秒。{@code <= 0} 表示不限制（等同于改造前的行为）。 */
     public static final long DEFAULT_CONNECT_TIMEOUT_MILLIS = RemoteJmxConnector.DEFAULT_CONNECT_TIMEOUT_MILLIS;
 
-    private final RemoteJmxConnector connector;
+    private final TargetConnector connector;
     private final LoggerProvider provider;
 
     public JmxClient(String server, String username, String password) throws IOException {
@@ -34,7 +36,15 @@ public class JmxClient implements AutoCloseable {
      */
     public JmxClient(String server, String username, String password, long connectTimeoutMillis)
             throws IOException {
-        this.connector = new RemoteJmxConnector(server, username, password, connectTimeoutMillis);
+        this(new RemoteJmxConnector(server, username, password, connectTimeoutMillis));
+    }
+
+    /**
+     * 在已建立的传输层连接上工作：{@code -P/--pid} 的本地 attach 与 {@code -s} 的 RMI
+     * 走的是同一个 {@link TargetConnector} 接口，本类不需要区分。
+     */
+    public JmxClient(TargetConnector connector) throws IOException {
+        this.connector = connector;
         try {
             this.provider = new LogbackJmxProvider(connector);
         } catch (IOException | RuntimeException e) {

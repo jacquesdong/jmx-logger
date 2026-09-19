@@ -6,7 +6,9 @@ import com.jmxlogger.command.ReloadCommand;
 import com.jmxlogger.command.SetCommand;
 import com.jmxlogger.support.CommandSupport;
 import com.jmxlogger.support.ExitCodes;
+import com.jmxlogger.transport.LocalPidConnector;
 import com.jmxlogger.transport.RemoteJmxConnector;
+import com.jmxlogger.transport.TargetConnector;
 import picocli.CommandLine;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.Option;
@@ -15,7 +17,9 @@ import picocli.CommandLine.Option;
  * jmx-logger 顶层命令，持有全局连接参数并注册子命令。
  *
  * <pre>
+ * <pre>
  * 用法: jmx-logger -s host:port [-u user] [-p pass] <get|set|reload|doctor> ...
+ * 用法: jmx-logger -P pid <get|set|reload|doctor> ...          （本地 attach，目标侧无需开端口）
  * </pre>
  *
  * <p>错误处理统一走 {@link CommandSupport}：子命令直接抛异常，
@@ -46,6 +50,11 @@ public class JmxLoggerCli implements Runnable {
     @Option(names = {"-p", "--password"}, description = "JMX 密码（可选）")
     private String password;
 
+    @Option(names = {"-P", "--pid"}, paramLabel = "pid",
+            description = "目标 JVM 的进程号：本地 attach 并现场启动管理代理，"
+                    + "目标侧无需预先开 JMX 端口；指定后优先于 -s")
+    private Long pid;
+
     @Option(names = {"--timeout"}, paramLabel = "秒",
             description = "连接超时（秒），0 表示不限制，默认值为 ${DEFAULT-VALUE}")
     private long timeoutSeconds = JmxClient.DEFAULT_CONNECT_TIMEOUT_MILLIS / 1000L;
@@ -66,6 +75,11 @@ public class JmxLoggerCli implements Runnable {
         return password;
     }
 
+    /** 本地 attach 的目标进程号；未指定时为 null（此时按 -s 走 RMI）。 */
+    public Long getPid() {
+        return pid;
+    }
+
     /** 是否打印完整堆栈。报错脱敏与 verbose 输出都从顶层命令取，子命令不各存一份。 */
     public boolean isVerbose() {
         return verbose;
@@ -75,14 +89,20 @@ public class JmxLoggerCli implements Runnable {
      * 建立到目标 JVM 的<b>传输层</b>连接，不解析任何 MBean。
      * 供 {@code doctor} 这类"先看看目标上有什么"的命令使用——直接建 Provider
      * 会因为 MBean 不存在而直接报错，就诊断不出原因了。
+     *
+     * <p>给了 {@code -P/--pid} 就走本地 attach（目标侧零配置），否则按 {@code -s/--server} 走 RMI。
+     * {@code -P} 优先：用户既然显式指定了进程，就不该再要求目标开端口。
      */
-    public RemoteJmxConnector openConnector() throws Exception {
+    public TargetConnector openConnector() throws Exception {
+        if (pid != null) {
+            return new LocalPidConnector(String.valueOf(pid), username, password, toMillis(timeoutSeconds));
+        }
         return new RemoteJmxConnector(requireServer(), username, password, toMillis(timeoutSeconds));
     }
 
-    /** 建立到目标 JVM 的 JmxClient 连接。 */
+    /** 建立到目标 JVM 的 JmxClient 连接（传输层由 {@link #openConnector()} 决定）。 */
     public JmxClient connect() throws Exception {
-        return new JmxClient(requireServer(), username, password, toMillis(timeoutSeconds));
+        return new JmxClient(openConnector());
     }
 
     private String requireServer() {
