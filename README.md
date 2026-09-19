@@ -109,7 +109,7 @@ attach API 全程反射调用（JDK 8 位于 `tools.jar`，JDK 9+ 归入 `jdk.at
 
 | 通道 | 依据的 MBean | `get` / `set` | `reload` | 目标侧需要 |
 | --- | --- | --- | --- | --- |
-| `logback` | `ch.qos.logback.classic...JMXConfigurator` | 支持 | **支持** | `logback.xml` 加 `<jmxConfigurator/>` |
+| `logback` | `ch.qos.logback.classic.jmx.JMXConfigurator` | 支持 | **支持** | `logback.xml` 加 `<jmxConfigurator/>` |
 | `actuator` | `org.springframework.boot:type=Endpoint,name=Loggers`（Spring Boot 2.7）<br>`name=loggersEndpoint`（Spring Boot 1.5） | 支持 | 不支持 | `spring-boot-starter-actuator` |
 
 端点命名与操作名两套都认（Spring Boot 1.5 的 `getLoggers()`/`getLogger`/`setLogLevel`
@@ -225,7 +225,7 @@ jmx-logger -s 10.0.0.5:19000 doctor
   JVM: OpenJDK 64-Bit Server VM 25.432-b06
   classpath 识别: spring-boot 1.5.20.RELEASE, spring-boot-actuator 1.5.20.RELEASE, logback-classic 1.1.11
 [候选 MBean]
-  logback JMXConfigurator    ch.qos.logback.classic:Type=...JMXConfigurator,*  ->  1 个
+  logback JMXConfigurator    ch.qos.logback.classic:Type=ch.qos.logback.classic.jmx.JMXConfigurator,*  ->  1 个
   Spring Boot loggers 端点          org.springframework.boot:type=Endpoint,*  ->  1 个
 
   ch.qos.logback.classic:Name=default,Type=ch.qos.logback.classic.jmx.JMXConfigurator
@@ -264,7 +264,7 @@ Spring Boot 各版本的端点命名不同（1.5 是 `name=loggersEndpoint`，2.
 ch.qos.logback.classic:Name=<contextName>,Type=ch.qos.logback.classic.jmx.JMXConfigurator
 ```
 
-工具正是按 `ch.qos.logback.classic:Type=...JMXConfigurator,*` 去查询它的。**没配这一行，一切命令都不可用。**
+工具正是按 `ch.qos.logback.classic:Type=ch.qos.logback.classic.jmx.JMXConfigurator,*` 去查询它的。**没配这一行，一切命令都不可用。**
 
 ### 2. 暴露 JMX 端口
 

@@ -67,7 +67,7 @@ flowchart LR
 
 架构要点：
 
-1. **Provider 优先顺序**：`auto` 下先探测 `ch.qos.logback.classic:Type=...JMXConfigurator,*`（能力最全，含 reload），找不到再探测 Spring Boot 的 logger 端点。
+1. **Provider 优先顺序**：`auto` 下先探测 `ch.qos.logback.classic:Type=ch.qos.logback.classic.jmx.JMXConfigurator,*`（能力最全，含 reload），找不到再探测 Spring Boot 的 logger 端点。
 2. **Actuator 端点必须双命名探测 + MBeanInfo 驱动，禁止写死签名**：
    - Spring Boot **1.5**：`org.springframework.boot:type=Endpoint,name=loggersEndpoint`，操作 `getLoggers()` / `getLogger(String)` / `setLogLevel(String,String)`（已实测，见上文）。
    - Spring Boot **2.7**：`org.springframework.boot:type=Endpoint,name=Loggers`，操作 `loggers()` / `loggerLevels(String)` / `configureLogLevel(String, ?)`。
