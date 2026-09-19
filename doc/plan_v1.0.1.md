@@ -124,7 +124,7 @@ flowchart LR
 
 - **Java 8 语法红线**：不用 `var`、`List.of`、`` ` ``、Stream API 新特性之外的 JDK9+ API。
 - **attach 在 JDK 8 的可行性**：`com.sun.tools.attach.VirtualMachine#startLocalManagementAgent()` 在 JDK 8 中存在，但类在 `tools.jar` 里，不在默认 classpath。实现要用反射 + `URLClassLoader.addURL` 动态把 `${java.home}/../lib/tools.jar` 挂进来；捕获 `ClassNotFound`/`AttachNotSupported` 并给出可操作提示（换 JDK 而非 JRE；同一 OS 用户；`/tmp` 可写；容器需共享 PID namespace）。JDK 9+ 无 `tools.jar`，同一份反射代码天然兼容。
-- **性能**：现有 `getLoggerList()` 后对每个 logger 做 2 次 RMI 调用是主要耗时来源（实测 783 个 logger ⇒ 1566 次往返）。Actuator 侧一次调用即拿全量（Boot 1.5 `getLoggers()` 实测返回完整 Map）；Logback Provider 侧无法批量，用 `--no-effective` 提供减半往返的逃生口（默认行为不变）。
+- **性能（2026-09-19 实测后定论，不要再回到"并发化"方案）**：常用路径是**单 logger 的 `set`/`get`**，其耗时构成是 `java -jar --help` ≈ 287 ms（JVM 启动 + picocli）vs `get ROOT` ≈ 340 ms —— **JMX 只占约 50 ms**（单次 invoke 是 1 ms 级、连接握手约 143 ms 冷启动）。⇒ **并发化 2N 次调用的方案已否决**：对主路径零收益，只会增加复杂度。全量列出（783 个 logger ⇒ 1566 次往返 ≈ 361 ms，端到端 793 ms）是唯一慢路径但属低频，优化留给 P3 的 Actuator 批量读（Boot 1.5 `getLoggers()` 实测 1 次调用 50 ms 拿全量）；Logback Provider 侧无法批量，`--no-effective` 保留为逃生口（默认行为不变）。另外「level 非空就跳过 effective 调用」的设想已实测否决：783 个 logger 里 769 个 level 为空，只能省 14 次调用。
 - **级别语义红线（已实测，写死在代码注释与测试里）**：读取侧"未配置/不存在"是**空串**不是 `null`；写入侧重置继承要传**字符串 `"null"`**，传 Java `null` 或非法级别会被目标静默忽略。任何一层再引入 `null` 语义都要先回来核对本节。
 - **安全**：`-p` 明文密码建议改为环境变量/交互式读取，避免在 ps 输出中泄漏；凭证不进日志。
 - **错误输出**：禁止打印完整堆栈到标准输出；`--verbose` 才打印堆栈，且过滤掉认证信息。
@@ -137,7 +137,7 @@ flowchart LR
 | P1 | 抽象与诊断 | transport/ + provider/ 骨架、`LogbackJmxProvider` 迁移、`DoctorCommand`、统一退出码 | 对现有 Boot 1.5.6 目标 `get/set/reload` 行为与改造前完全一致；`doctor -s host:port` 能列出候选 MBean 与操作签名 |
 | P2 | 本地 attach | `LocalPidConnector`、`-P/--pid` | 对未开 JMX 端口的本机进程：`get -P <pid>` 成功；容器内/JRE 缺失时给出明确报错而非堆栈 |
 | P3 | Actuator 兜底（**Boot 1.5 + 2.7 双命名**） | `BootActuatorJmxProvider`（先查 `name=loggersEndpoint`，再查 `name=Loggers`，签名与返回值由 MBeanInfo 决定）+ `ProviderFactory` auto | ① 现网 Boot 1.5 目标上 `--target boot-jmx get` 用 1 次 RMI 列出全部 logger，且结果与 `--target logback-jmx` 一致；② 目标未配 `<jmxConfigurator/>` 但带 actuator 时 `--target auto` 自动切换；③ `reload` 给出替代方案而非崩溃 |
-| P4 | 打磨 | `--json`、`set inherit`（下发字符串 `"null"`）、`--object-name`、超时控制、**logger 不存在报错 + 非 0 退出码**、单测、Justfile、README | 单元测通过；`get --json` 可被脚本消费；`get 不存在的名字` 打印"未找到 logger X"且退出码为 3 |
+| P4 | 打磨 | `--json`、`set inherit`（下发字符串 `"null"`）、`--object-name`、**logger 不存在报错 + 非 0 退出码**、单测、Justfile、README | 单元测通过；`get --json` 可被脚本消费；`get 不存在的名字` 打印"未找到 logger X"且退出码为 3 |
 | P5 | 未来 Boot 3 预留 | 基于已有 Provider 接口扩展 HTTP Provider / 自定义 endpoint 指引 | 文档化差异（JMX 默认仅 `health`、logback ≥1.3 无 JMXConfigurator、`configureLogLevel` 入参类型），不写代码实现 |
 
 ### P4 新增：logger 不存在的处理契约
@@ -152,6 +152,20 @@ flowchart LR
 
 退出码约定（在 `ExitCodes` 与 README 中同步定稿）：`0` 成功、`1` 运行时错误（连不上、MBean 不存在、JMX 调用失败）、`2` 用法错误（非法级别、参数缺失）、**`3` 未找到（logger 不存在 / 过滤无匹配）**。选独立码而非复用 `1`，是为了让脚本能区分"目标上没这个 logger"与"根本没连上"。
 
+
+### 已完成（P0，先于 P1 落地）：连接超时
+
+原属 P4 的"超时控制"提前到 P1 之前做——它是体感最差的一项：RMI 握手没有超时参数，
+网络不通时命令会一直挂到 TCP 默认超时（可达数分钟），比缺功能更难受。
+
+- 新增全局选项 `--timeout <秒>`，默认 **10 秒**，`0` 表示不限制（等同改造前行为）。
+- 实现：`JmxClient` 把 `JMXConnectorFactory.connect` 放到**守护线程**里跑，由 `Future#get(timeout)` 限时，
+  超时即放弃并抛出带排查清单的 `IOException`（退出码 `1`）。没走 `sun.rmi.*` 系统属性或自定义
+  `RMIClientSocketFactory`——前者覆盖面不确定，后者只能覆盖部分握手阶段；守护线程方案对
+  "JNDI 查注册表"与"连 RMI 数据端口"两个阶段都成立。
+- 实测：黑洞地址 `192.0.2.1:19000 --timeout 3` ⇒ 3.58 s 报错退出（含 JVM 启动约 0.35 s），退出码 1；
+  真实目标（本机 19000）行为不变。
+- 测试：`TestJmxServer.BlackholeServer`（只 accept、不回应）覆盖超时分支；`<= 0` 分支沿用原有报错文案。
 
 ## 各阶段主要风险
 

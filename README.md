@@ -30,7 +30,7 @@ fat jar 内已包含 picocli，拷到任意有 JRE/JDK 的机器上 `java -jar` 
 ## 用法
 
 ```
-用法: jmx-logger [-hV] [-p=<password>] [-s=<server>] [-u=<username>] [COMMAND]
+用法: jmx-logger [-hV] [-p=<password>] [-s=<server>] [--timeout=秒] [-u=<username>] [COMMAND]
 ```
 
 | 全局选项 | 说明 | 默认 |
@@ -38,9 +38,13 @@ fat jar 内已包含 picocli，拷到任意有 JRE/JDK 的机器上 `java -jar` 
 | `-s, --server` | 目标 JVM 的 JMX 地址 `host:port` | `127.0.0.1:19000` |
 | `-u, --username` | JMX 用户名（开启认证时） | 空 |
 | `-p, --password` | JMX 密码（开启认证时） | 空 |
+| `--timeout` | 连接超时（秒），`0` 表示不限制 | `10` |
 | `-h, --help` / `-V, --version` | 帮助 / 版本 | — |
 
 连接串形如 `service:jmx:rmi:///jndi/rmi://<server>/jmxrmi`。
+
+RMI 握手本身没有超时参数，网络不通时会一直挂到 TCP 默认超时（经常是几分钟），
+所以工具默认给连接加了 10 秒上限，超时即报错退出（退出码 `1`）。对面确实很慢时用 `--timeout 60` 放宽。
 
 ### get — 查看级别
 
@@ -155,6 +159,7 @@ ch.qos.logback.classic:Name=<contextName>,Type=ch.qos.logback.classic.jmx.JMXCon
 | 现象 | 原因与处理 |
 | --- | --- |
 | `无法连接到 JMX 服务器` | 端口不通 / 目标未加 `com.sun.management.jmxremote` / 防火墙未放通 RMI 端口；用 `nc -vz host port` 先确认连通性 |
+| `连接 JMX 服务器超时（超过 N ms）` | TCP 能建连但对面不回应，典型是防火墙丢包或 `jmxremote.rmi.port` 未放通；按报错里的提示逐项核对，或先用 `--timeout 30` 排除"只是慢" |
 | `未找到 Logback JMXConfigurator MBean` | 目标 `logback.xml` 缺 `<jmxConfigurator/>`，或该 JVM 用的不是 Logback |
 | 连上后很快断开 / 卡住 | 未设 `java.rmi.server.hostname`，或 `rmi.port` 与 `port` 不一致 |
 | `set` 后级别没变 | 确认改的是正确的 logger 名；子 logger 会覆盖父 logger；`reload` 会重置为配置文件中的值 |
@@ -179,7 +184,7 @@ read -s JMX_PASS && java -jar target/jmx-logger.jar -s 10.0.0.5:19000 -u admin -
 | P1 | 抽出 transport/provider 抽象；新增 `doctor` 诊断子命令；统一退出码与 `--verbose` |
 | P2 | `-P/--pid` 本地 attach（目标未开 JMX 端口时，通过 attach API 动态拉起管理代理，目标侧零配置） |
 | P3 | Spring Boot Actuator 兜底通道（`type=Endpoint,name=Loggers`），目标无 `<jmxConfigurator/>` 时自动切换 |
-| P4 | `--json` 输出、`set inherit`（重置为继承级别）、`--object-name`（多 LoggerContext）、连接超时 |
+| P4 | `--json` 输出、`set inherit`（重置为继承级别）、`--object-name`（多 LoggerContext） |
 | P5 | Boot 3.x / Logback 1.4+ 的 HTTP 通道预留 |
 
 ## 开发
