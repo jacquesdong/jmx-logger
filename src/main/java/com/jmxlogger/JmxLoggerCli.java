@@ -32,6 +32,8 @@ import picocli.CommandLine.Option;
  */
 @Command(
         name = "jmx-logger",
+        abbreviateSynopsis = true,
+        sortOptions = false,
         mixinStandardHelpOptions = true,
         // 版本不再写死：由构建期生成的 git.properties 提供（版本号 + commit + 构建时间）
         versionProvider = VersionProvider.class,
@@ -58,13 +60,13 @@ public class JmxLoggerCli implements Runnable {
      * {@code --password <明文>}（会出现在 ps 输出里）、{@code --password} 不带取值（交互式读取）、
      * 完全省略时回退到环境变量 {@value PasswordResolver#ENV_PASSWORD}。
      */
-    @Option(names = {"--password"}, paramLabel = "密码", arity = "0..1",
+    @Option(names = {"--password"}, arity = "0..1",
             fallbackValue = PasswordResolver.INTERACTIVE,
             description = "JMX 密码（可选）。不带取值时交互式读取（不回显）；"
                     + "完全省略时回退到环境变量 " + PasswordResolver.ENV_PASSWORD)
     private String password;
 
-    @Option(names = {"-p", "--pid"}, paramLabel = "pid",
+    @Option(names = {"-p", "--pid"},
             description = "目标 JVM 的进程号：本地 attach 并现场启动管理代理，"
                     + "目标侧无需预先开 JMX 端口；指定后优先于 -s")
     private Long pid;
@@ -73,12 +75,14 @@ public class JmxLoggerCli implements Runnable {
     private String resolvedPassword;
     private boolean passwordResolved;
 
-    @Option(names = {"-t", "--target"}, paramLabel = "通道",
+    @Option(names = {"-t", "--target"},
             description = "日志通道: auto（先 logback，缺失时兜底 actuator）/ logback / actuator，"
                     + "默认值为 ${DEFAULT-VALUE}")
     private String target = ProviderFactory.AUTO;
 
-    @Option(names = {"--timeout"}, paramLabel = "秒",
+    // paramLabel 自带尖括号：字段叫 timeoutSeconds，不覆盖会渲染成 <timeoutSeconds>；
+    // 显式覆盖时 picocli 原样输出，尖括号得自己带上，否则只有它跟别的选项长得不一样
+    @Option(names = {"--timeout"}, paramLabel = "<seconds>",
             description = "连接超时（秒），0 表示不限制，默认值为 ${DEFAULT-VALUE}")
     private long timeoutSeconds = JmxClient.DEFAULT_CONNECT_TIMEOUT_MILLIS / 1000L;
 

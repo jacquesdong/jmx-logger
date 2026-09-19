@@ -45,6 +45,33 @@ public class JmxLoggerCliTest {
         assertEquals("子命令清单变了要显式确认，实际: " + names, 5, names.size());
     }
 
+    /**
+     * {@code --help} 是用户了解选项的唯一入口（概要行已缩写），形态必须锁住：
+     * 概要行缩写为 {@code [OPTIONS] [COMMAND]}，选项列表按声明顺序（连接 → 认证 → 通道 → 输出），
+     * 而不是 picocli 默认的字母序——那会把 {@code --password} 排到 {@code -p} 前面。
+     */
+    @Test
+    public void helpIsAbbreviatedAndOptionsFollowDeclarationOrder() {
+        CommandLine cmd = new CommandLine(new JmxLoggerCli());
+        cmd.setUsageHelpWidth(120); // 固定宽度，避免窄终端换行打断下面的位置断言
+        String usage = cmd.getUsageMessage(CommandLine.Help.Ansi.OFF);
+
+        assertTrue("概要行应缩写为 [OPTIONS] [COMMAND]，实际:\n" + usage,
+                usage.contains("Usage: jmx-logger [OPTIONS] [COMMAND]"));
+
+        String[] declaredOrder = {
+                "--server=<server>", "--username=<username>", "--password[=<password>]", "--pid=<pid>",
+                "--target=<target>", "--timeout=<seconds>", "--verbose"
+        };
+        int previous = -1;
+        for (String option : declaredOrder) {
+            int at = usage.indexOf(option);
+            assertTrue("help 里应出现 " + option + "，实际:\n" + usage, at >= 0);
+            assertTrue("选项应按声明顺序排列，" + option + " 排错了位置，实际:\n" + usage, at > previous);
+            previous = at;
+        }
+    }
+
     @Test
     public void defaultServerIsLocalhost19000() {
         CommandLine cmd = new CommandLine(new JmxLoggerCli());
