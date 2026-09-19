@@ -4,8 +4,8 @@ package com.jmxlogger.provider;
  * Provider 的能力声明，用于能力协商：上层命令据此决定"做不到时该给什么建议"，
  * 而不是含糊地报一个错。
  *
- * <p>目前只有 {@code reload} 一项存在差异——{@code logback-jmx} 支持，
- * 计划 P3 的 {@code boot-actuator-jmx} 兜底通道不支持。
+ * <p>目前只有 {@code reload} 一项存在差异——{@code logback} 通道支持，
+ * {@code actuator} 兜底通道不支持。
  */
 public final class Capabilities {
 

@@ -4,12 +4,12 @@
 
 ## 已核实的关键前提（决定方案走向）
 
-- **升级到 Spring Boot 2.7.18 不会破坏现有工具**：Boot 2.7.18 受管 `logback-classic = 1.2.12`，而 logback `v_1.1.11` 与 `v_1.2.13` 的 `ch/qos/logback/classic/jmx/` 目录文件完全一致（`JMXConfigurator.java` 均为 9660 字节），即 1.1.x → 1.2.x 的 JMX 操作面不变。现有 `JmxClient` 调用的方法名/ObjectName 在两个版本上都有效。
-- **Boot 2.7.18 要求 Java 8**（兼容至 Java 21），因此 `maven.compiler.source/target=8` 必须保持不动。
-- **Boot 2.7 的 Actuator JMX 默认全暴露**：`management.endpoints.jmx.exposure.include` 默认为 `*`，`loggers` 端点 JMX 列默认为 Yes ⇒ 只要目标应用带 actuator，即可零配置作为兜底通道（与 Boot 3.x 默认仅 `health` 不同，不可混写）。
-- **logback ≥ 1.3 才彻底移除 JMXConfigurator**（`v_1.4.14`/`v_1.5.13`/master 已无 jmx 目录）。这只影响未来 JDK 17 + Boot 3 的场景，本计划通过 Provider 抽象预留，不作为当前重点。
+- **升级到 Spring Boot 2.7.18 不会破坏现有工具**：Spring Boot 2.7.18 受管 `logback-classic = 1.2.12`，而 logback `v_1.1.11` 与 `v_1.2.13` 的 `ch/qos/logback/classic/jmx/` 目录文件完全一致（`JMXConfigurator.java` 均为 9660 字节），即 1.1.x → 1.2.x 的 JMX 操作面不变。现有 `JmxClient` 调用的方法名/ObjectName 在两个版本上都有效。
+- **Spring Boot 2.7.18 要求 Java 8**（兼容至 Java 21），因此 `maven.compiler.source/target=8` 必须保持不动。
+- **Spring Boot 2.7 的 Actuator JMX 默认全暴露**：`management.endpoints.jmx.exposure.include` 默认为 `*`，`loggers` 端点 JMX 列默认为 Yes ⇒ 只要目标应用带 actuator，即可零配置作为兜底通道（与 Spring Boot 3.x 默认仅 `health` 不同，不可混写）。
+- **logback ≥ 1.3 才彻底移除 JMXConfigurator**（`v_1.4.14`/`v_1.5.13`/master 已无 jmx 目录）。这只影响未来 JDK 17 + Spring Boot 3 的场景，本计划通过 Provider 抽象预留，不作为当前重点。
 
-### 真实目标进程实测结论（2026-09-19，本机 `127.0.0.1:19000` 上的 Boot 1.5 应用）
+### 真实目标进程实测结论（2026-09-19，本机 `127.0.0.1:19000` 上的 Spring Boot 1.5 应用）
 
 以下结论来自对真实目标 JVM 的 MBeanInfo 抓取 + logback `JMXConfigurator.java`（v_1.1.11 / v_1.2.12）源码逐行核对，是本计划的硬事实，**P1 重构与 P3/P4 编码必须以此为准，不得再靠猜**：
 
@@ -19,7 +19,7 @@
   操作：`String getLoggerLevel(String)`、`String getLoggerEffectiveLevel(String)`、`void setLoggerLevel(String,String)`、`void reloadDefaultConfiguration()`、`void reloadByFileName(String)`、`void reloadByURL(java.net.URL)`。
 - **级别读取返回空串而非 `null`**：`getLoggerLevel` / `getLoggerEffectiveLevel` 在「logger 不存在」和「logger 未单独配置级别」两种情况下都返回 `""`（源码常量 `JMXConfigurator.EMPTY`）。因此判定"继承"必须判空串，**不能判 `null`**（现有 `GetCommand` 只判 `null`，导致真实输出是空白而非文档所写的 `(inherited)`，已在 P0 修掉）。
 - **`setLoggerLevel` 的 null 语义与直觉相反**：源码开头即 `if (levelStr == null) return;`，传 **Java `null` 被静默忽略**；恢复"继承父 logger"必须传**字符串 `"null"`**（`"null".equalsIgnoreCase(levelStr)` → `logger.setLevel(null)`）；传入无法识别的级别字符串同样静默忽略（`Level.toLevel(x, null) == null`）。⇒ P4 的 `set inherit` 必须下发字符串 `"null"`，且本地要先做级别白名单校验，否则用户会看到"命令成功但级别没变"。
-- **目标进程带 Spring Boot 1.5 actuator，且 JMX 暴露的是 Boot 1.5 命名模型**（不是 Boot 2 的 `name=Loggers`），实测签名：
+- **目标进程带 Spring Boot 1.5 actuator，且 JMX 暴露的是 Spring Boot 1.5 命名模型**（不是 Spring Boot 2 的 `name=Loggers`），实测签名：
   ```
   org.springframework.boot:type=Endpoint,name=loggersEndpoint
     ATTR Loggers : java.lang.Object
@@ -30,13 +30,13 @@
          → LinkedHashMap{ "configuredLevel" → String|null, "effectiveLevel" → String|null }
     OP   void setLogLevel(String loggerName, String logLevel)
   ```
-  返回值是**普通 LinkedHashMap（非 CompositeData/TabularData）**，未配置的 `configuredLevel` 是 Java `null`（与 logback 侧的空串不同）。⇒ Boot 1.5 兜底通道**现在就可用**，且 `getLoggers()` 一次拿全量（1 次 RMI vs logback 侧 2N 次），性能收益显著。**原计划"Boot 1.5 actuator 不在支持范围"的判断据此作废。**
+  返回值是**普通 LinkedHashMap（非 CompositeData/TabularData）**，未配置的 `configuredLevel` 是 Java `null`（与 logback 侧的空串不同）。⇒ Spring Boot 1.5 兜底通道**现在就可用**，且 `getLoggers()` 一次拿全量（1 次 RMI vs logback 侧 2N 次），性能收益显著。**原计划"Spring Boot 1.5 actuator 不在支持范围"的判断据此作废。**
 
 ## 核心功能增量（按用户收益排序）
 
 1. **连不上也能用**：新增 `-p/--pid` 本地 attach（目标 JVM 未开 JMX 端口时，通过 attach API 动态启动本地管理代理）。
 2. **知道为什么连不上**：新增 `doctor` 子命令，区分"没配 `<jmxConfigurator/>` / 没开 JMX 端口 / logback 版本过高 / 可走 Actuator 兜底"，并输出目标侧该加的配置。
-3. **可插拔 Provider**：`logback-jmx`（现逻辑，支持 reload）与 `boot-actuator-jmx`（兜底，不支持 reload，**覆盖 Boot 1.5 与 2.7 两种命名模型**），`auto` 自动探测。
+3. **可插拔 Provider**：`logback`（现逻辑，支持 reload）与 `actuator`（兜底，不支持 reload，**覆盖 Spring Boot 1.5 与 2.7 两种命名模型**），`auto` 自动探测（取值即 `-t/--target` 的取值）。
 4. **健壮性与打磨**：统一错误退出码与 `--verbose`、支持重置为继承级别、`--object-name` 多 LoggerContext 选择、`--json` 输出、**logger 不存在时明确报错并返回非 0 退出码**、单元测试与目标侧配置文档。
 
 ## 技术栈
@@ -56,7 +56,7 @@ flowchart LR
     TR --> L["LocalPidConnector<br/>-p pid · attach 反射"]
     TR --> PF{"ProviderFactory<br/>--target auto"}
     PF --> P1["LogbackJmxProvider<br/>logback 1.1/1.2<br/>get/set/reload"]
-    PF --> P2["BootActuatorJmxProvider<br/>Boot1.5 name=loggersEndpoint<br/>Boot2.7 name=Loggers<br/>MBeanInfo 驱动入参"]
+    PF --> P2["ActuatorJmxProvider<br/>Spring Boot 1.5 name=loggersEndpoint<br/>Spring Boot 2.7 name=Loggers<br/>MBeanInfo 驱动入参"]
     P1 --> OUT["OutputFormatter<br/>table / json"]
     P2 --> OUT
     DOC["DoctorCommand"] -.探测.-> TR
@@ -65,12 +65,12 @@ flowchart LR
 
 架构要点：
 
-1. **Provider 优先顺序**：`auto` 下先探测 `ch.qos.logback.classic:Type=...JMXConfigurator,*`（能力最全，含 reload），找不到再探测 Boot 的 logger 端点。
+1. **Provider 优先顺序**：`auto` 下先探测 `ch.qos.logback.classic:Type=...JMXConfigurator,*`（能力最全，含 reload），找不到再探测 Spring Boot 的 logger 端点。
 2. **Actuator 端点必须双命名探测 + MBeanInfo 驱动，禁止写死签名**：
-   - Boot **1.5**：`org.springframework.boot:type=Endpoint,name=loggersEndpoint`，操作 `getLoggers()` / `getLogger(String)` / `setLogLevel(String,String)`（已实测，见上文）。
-   - Boot **2.7**：`org.springframework.boot:type=Endpoint,name=Loggers`，操作 `loggers()` / `loggerLevels(String)` / `configureLogLevel(String, ?)`。
+   - Spring Boot **1.5**：`org.springframework.boot:type=Endpoint,name=loggersEndpoint`，操作 `getLoggers()` / `getLogger(String)` / `setLogLevel(String,String)`（已实测，见上文）。
+   - Spring Boot **2.7**：`org.springframework.boot:type=Endpoint,name=Loggers`，操作 `loggers()` / `loggerLevels(String)` / `configureLogLevel(String, ?)`。
    - 实现上不按版本号分支，而是**先查 ObjectName、再读 `mbsc.getMBeanInfo(name)` 的 `MBeanOperationInfo` 动态构造 `params/signature`**：入参 `String` 直接传；遇到自定义类型（如 `org.springframework.boot.logging.LogLevel`）走 `Class.forName + Enum.valueOf` 构造，失败则明确报错。
-   - 返回值可能是 `LinkedHashMap`（Boot 1.5 实测）、CompositeData/TabularData 或 JSON 字符串，Provider 要按实际类型分发解析，统一收敛到 `LoggerInfo{name, configuredLevel, effectiveLevel}`。
+   - 返回值可能是 `LinkedHashMap`（Spring Boot 1.5 实测）、CompositeData/TabularData 或 JSON 字符串，Provider 要按实际类型分发解析，统一收敛到 `LoggerInfo{name, configuredLevel, effectiveLevel}`。
    - `doctor` 子命令负责把每个候选端点的真实 MBeanInfo 打印出来，让这层版本差异始终可观测。
 3. **能力协商**：`LoggerProvider.capabilities()` 声明是否支持 `reload`；Actuator Provider 下 `reload` 给出可执行替代建议（logback.xml 开 `scan="true"`，或目标侧加自定义 endpoint），而不是含糊失败。
 4. **向后兼容**：阶段一/二对外的 `get/set/reload` 参数与输出格式保持不变；`auto` 的默认选择等价于今天的行为。
@@ -80,8 +80,8 @@ flowchart LR
 - 走 Logback JMXProvider：`logback.xml` 中 `<jmxConfigurator/>` + 启动参数
 `-Dcom.sun.management.jmxremote -Dcom.sun.management.jmxremote.port=19000 -Dcom.sun.management.jmxremote.rmi.port=19001 -Dcom.sun.management.jmxremote.authenticate=true -Dcom.sun.management.jmxremote.ssl=false -Djava.rmi.server.hostname=<本机IP>`（`rmi.port` 必须与 `port` 一致，否则防火墙后握手失败）。
 - 走本地 PID attach：**目标侧零配置**（前提是本机同用户、非 JRE 最小镜像）。
-- 走 Actuator 兜底（**Boot 1.5**：已实测可用；**Boot 2.7**：同左）：仅需 classpath 有 `spring-boot-starter-actuator`，无需 `management.*` 配置（默认 JMX include=`*`、loggers 默认暴露）；若目标是 Boot 3.x 才需要显式 `management.endpoints.jmx.exposure.include=health,loggers`。
-  - Boot 1.5 的 ObjectName 是 `org.springframework.boot:type=Endpoint,name=loggersEndpoint`（小写开头 + `Endpoint` 后缀），Boot 2.7 是 `type=Endpoint,name=Loggers`，**两者都要探测**。
+- 走 Actuator 兜底（**Spring Boot 1.5**：已实测可用；**Spring Boot 2.7**：同左）：仅需 classpath 有 `spring-boot-starter-actuator`，无需 `management.*` 配置（默认 JMX include=`*`、loggers 默认暴露）；若目标是 Spring Boot 3.x 才需要显式 `management.endpoints.jmx.exposure.include=health,loggers`。
+  - Spring Boot 1.5 的 ObjectName 是 `org.springframework.boot:type=Endpoint,name=loggersEndpoint`（小写开头 + `Endpoint` 后缀），Spring Boot 2.7 是 `type=Endpoint,name=Loggers`，**两者都要探测**。
 
 ## 目录结构
 
@@ -109,9 +109,9 @@ flowchart LR
     │   ├── LoggerProvider.java                      # [NEW] 接口：id()/list()/get()/setLevel(name, levelOrNull)/reload(file)/capabilities()
     │   ├── LoggerInfo.java                          # [NEW] name / configuredLevel / effectiveLevel
     │   ├── LogbackJmxProvider.java                  # [NEW] 迁移现有 getLoggerLevel/setLoggerLevel/reloadByFileName 等调用
-    │   ├── BootActuatorJmxProvider.java             # [NEW] 双命名探测（Boot1.5 loggersEndpoint / Boot2.7 Loggers），
+    │   ├── ActuatorJmxProvider.java             # [NEW] 双命名探测（Spring Boot 1.5 loggersEndpoint / Spring Boot 2.7 Loggers），
     │   │                                            #      按 MBeanInfo 决定入参与返回值解析（Map / CompositeData / JSON 串）
-    │   └── ProviderFactory.java                     # [NEW] auto/logback-jmx/boot-jmx 选择与探测顺序
+    │   └── ProviderFactory.java                     # [NEW] auto/logback/actuator 选择与探测顺序
     ├── support/                                     # 退出码与格式化属支撑层，不混进 command/
     │   ├── ExitCodes.java / CommandSupport.java     # [DONE] 退出码常量 + 异常到退出码/报错文本的映射
     │   ├── JmxInvocation.java                       # [NEW] 按 MBeanOperationInfo 构造 signature/params（解决 LogLevel 枚举不确定性）
@@ -132,7 +132,7 @@ flowchart LR
 
 - **Java 8 语法红线**：不用 `var`、`List.of`、`` ` ``、Stream API 新特性之外的 JDK9+ API。
 - **attach 在 JDK 8 的可行性**：`com.sun.tools.attach.VirtualMachine#startLocalManagementAgent()` 在 JDK 8 中存在，但类在 `tools.jar` 里，不在默认 classpath。实现要用反射 + `URLClassLoader.addURL` 动态把 `${java.home}/../lib/tools.jar` 挂进来；捕获 `ClassNotFound`/`AttachNotSupported` 并给出可操作提示（换 JDK 而非 JRE；同一 OS 用户；`/tmp` 可写；容器需共享 PID namespace）。JDK 9+ 无 `tools.jar`，同一份反射代码天然兼容。
-- **性能（2026-09-19 实测后定论，不要再回到"并发化"方案）**：常用路径是**单 logger 的 `set`/`get`**，其耗时构成是 `java -jar --help` ≈ 287 ms（JVM 启动 + picocli）vs `get ROOT` ≈ 340 ms —— **JMX 只占约 50 ms**（单次 invoke 是 1 ms 级、连接握手约 143 ms 冷启动）。⇒ **并发化 2N 次调用的方案已否决**：对主路径零收益，只会增加复杂度。全量列出（783 个 logger ⇒ 1566 次往返 ≈ 361 ms，端到端 793 ms）是唯一慢路径但属低频，优化留给 P3 的 Actuator 批量读（Boot 1.5 `getLoggers()` 实测 1 次调用 50 ms 拿全量）；Logback Provider 侧无法批量，`--no-effective` 保留为逃生口（默认行为不变）。另外「level 非空就跳过 effective 调用」的设想已实测否决：783 个 logger 里 769 个 level 为空，只能省 14 次调用。
+- **性能（2026-09-19 实测后定论，不要再回到"并发化"方案）**：常用路径是**单 logger 的 `set`/`get`**，其耗时构成是 `java -jar --help` ≈ 287 ms（JVM 启动 + picocli）vs `get ROOT` ≈ 340 ms —— **JMX 只占约 50 ms**（单次 invoke 是 1 ms 级、连接握手约 143 ms 冷启动）。⇒ **并发化 2N 次调用的方案已否决**：对主路径零收益，只会增加复杂度。全量列出（783 个 logger ⇒ 1566 次往返 ≈ 361 ms，端到端 793 ms）是唯一慢路径但属低频，优化留给 P3 的 Actuator 批量读（Spring Boot 1.5 `getLoggers()` 实测 1 次调用 50 ms 拿全量）；Logback Provider 侧无法批量，`--no-effective` 保留为逃生口（默认行为不变）。另外「level 非空就跳过 effective 调用」的设想已实测否决：783 个 logger 里 769 个 level 为空，只能省 14 次调用。
 - **级别语义红线（已实测，写死在代码注释与测试里）**：读取侧"未配置/不存在"是**空串**不是 `null`；写入侧重置继承要传**字符串 `"null"`**，传 Java `null` 或非法级别会被目标静默忽略。任何一层再引入 `null` 语义都要先回来核对本节。
 - **安全（已实现）**：`--password` 支持三种来源——`--password <明文>`（打印一行 ps 泄漏提示）、
   `--password` 不带取值（交互式读取，终端下不回显，无控制台时读 stdin 并提示会回显）、
@@ -141,17 +141,17 @@ flowchart LR
 - **短选项分配（2026-09-19 定稿）**：`-s`（host:port）与 `-p`（pid）是"指向哪个 JVM"的两个短选项，
   `--username` / `--password` 只有长选项。
 - **错误输出**：禁止打印完整堆栈到标准输出；`--verbose` 才打印堆栈，且过滤掉认证信息。
-- **变更半径**：阶段一只做重构与新增，不改既有行为；`auto` 默认路径必须等价于改造前的 JmxClient 行为，确保 Back Boot 1.5.6 环境零影响。
+- **变更半径**：阶段一只做重构与新增，不改既有行为；`auto` 默认路径必须等价于改造前的 JmxClient 行为，确保 Back Spring Boot 1.5.6 环境零影响。
 
 ## 实施阶段与验收
 
 | 阶段 | 目标 | 主要改动 | 验收方式 |
 | --- | --- | --- | --- |
-| P1 | 抽象与诊断 | transport/ + provider/ 骨架、`LogbackJmxProvider` 迁移、`DoctorCommand`、统一退出码 | 对现有 Boot 1.5.6 目标 `get/set/reload` 行为与改造前完全一致；`doctor -s host:port` 能列出候选 MBean 与操作签名 |
+| P1 | 抽象与诊断 | transport/ + provider/ 骨架、`LogbackJmxProvider` 迁移、`DoctorCommand`、统一退出码 | 对现有 Spring Boot 1.5.6 目标 `get/set/reload` 行为与改造前完全一致；`doctor -s host:port` 能列出候选 MBean 与操作签名 |
 | P2 | 本地 attach | `LocalPidConnector`、`-p/--pid` | 对未开 JMX 端口的本机进程：`get -p <pid>` 成功；容器内/JRE 缺失时给出明确报错而非堆栈 |
-| P3 | Actuator 兜底（**Boot 1.5 + 2.7 双命名**） | `BootActuatorJmxProvider`（先查 `name=loggersEndpoint`，再查 `name=Loggers`，签名与返回值由 MBeanInfo 决定）+ `ProviderFactory` auto | ① 现网 Boot 1.5 目标上 `--target boot-jmx get` 用 1 次 RMI 列出全部 logger，且结果与 `--target logback-jmx` 一致；② 目标未配 `<jmxConfigurator/>` 但带 actuator 时 `--target auto` 自动切换；③ `reload` 给出替代方案而非崩溃 |
+| P3 | ~~Actuator 兜底（**Spring Boot 1.5 + 2.7 双命名**）~~ ✅ | ~~`ActuatorJmxProvider`（`Endpoint,*` 查询后按 `name` 含 logger 过滤，签名与返回值由 MBeanInfo 决定）+ `ProviderFactory` auto~~ | ① 现网 Spring Boot 1.5 目标上 `-t actuator get` 实测 1 次 RMI 列出全部 786 个 logger，与 `-t logback get` 一致 ✅；② `-t auto` 在两条都在时选 logback、缺 logback 时自动切换 ✅（用例覆盖）；③ `reload` 给出替代方案而非崩溃 ✅ |
 | P4 | 打磨 | `--json`、`set inherit`（下发字符串 `"null"`）、`--object-name`、**logger 不存在报错 + 非 0 退出码**、单测、Justfile、README | 单元测通过；`get --json` 可被脚本消费；`get 不存在的名字` 打印"未找到 logger X"且退出码为 3 |
-| P5 | 未来 Boot 3 预留 | 基于已有 Provider 接口扩展 HTTP Provider / 自定义 endpoint 指引 | 文档化差异（JMX 默认仅 `health`、logback ≥1.3 无 JMXConfigurator、`configureLogLevel` 入参类型），不写代码实现 |
+| P5 | 未来 Spring Boot 3 预留 | 基于已有 Provider 接口扩展 HTTP Provider / 自定义 endpoint 指引 | 文档化差异（JMX 默认仅 `health`、logback ≥1.3 无 JMXConfigurator、`configureLogLevel` 入参类型），不写代码实现 |
 
 ### P4 新增：logger 不存在的处理契约
 
@@ -171,17 +171,17 @@ flowchart LR
 - `transport/`：`TargetConnector` 接口 + `RemoteJmxConnector`（原 `JmxClient` 的建连逻辑整段搬过来，URL/凭证/超时与两套报错文案原样保留）。
 - `provider/`：`LoggerProvider` 接口 + `Capabilities` + `LogbackJmxProvider`（原 MBean 探测与 4 个 invoke 签名搬过来）。
 - `JmxClient` 缩为薄门面，`get/set/reload` 三个命令本次**零改动**，原有 16 个刻画用例原样全绿。
-- 暂未引入 `LoggerInfo` 与 `ProviderFactory`：当前只有一种 provider，提前加是死代码；留到 P3 随 `BootActuatorJmxProvider` 一起落地。
+- 暂未引入 `LoggerInfo` 与 `ProviderFactory`：当前只有一种 provider，提前加是死代码；留到 P3 随 `ActuatorJmxProvider` 一起落地。
 
 ### 已完成（P1 之二）：doctor 诊断子命令
 
 - 只读探测：连接信息（目标/URL/进程/JVM）→ 候选 MBean 清单 → 命中 MBean 的**完整 MBeanInfo** → 结论与目标侧配置建议。
 - **classpath 版本识别**：读 `java.lang:type=Runtime` 的 `ClassPath` 属性，认出 `logback-classic` / `spring-boot-actuator` 版本；logback ≥ 1.3 直接提示 `JMXConfigurator` 已被移除。只读 jar 名，不打印整条 classpath。
-- **Boot 端点双命名探测**：不按版本号分支，而是查 `org.springframework.boot:type=Endpoint,*` 后按 `name` 含 `logger` 过滤，因此 Boot 1.5 的 `name=loggersEndpoint` 与 Boot 2.7 的 `name=Loggers` 都能命中。
+- **Spring Boot 端点双命名探测**：不按版本号分支，而是查 `org.springframework.boot:type=Endpoint,*` 后按 `name` 含 `logger` 过滤，因此 Spring Boot 1.5 的 `name=loggersEndpoint` 与 Spring Boot 2.7 的 `name=Loggers` 都能命中。
 - 报告生成（`diagnose(TargetConnector)`）与打印（`call()`）分离，测试可直接断言报告文本，不必面对 `System.exit`。
 - 退出码沿用现状：连不上为 `1`，诊断完成（即便报告"无可用通道"）为 `0`。该约定已在 P1 之三（`ExitCodes` + `IExecutionExceptionHandler`）中定稿为正式契约。
 
-真实目标（Boot 1.5.6 + logback 1.1.11，本机 19000）上的实测输出复现并**再次印证**了上文结论，且补充了此前没记全的端点属性：
+真实目标（Spring Boot 1.5.6 + logback 1.1.11，本机 19000）上的实测输出复现并**再次印证**了上文结论，且补充了此前没记全的端点属性：
 
 ```
 org.springframework.boot:type=Endpoint,name=loggersEndpoint
@@ -228,6 +228,50 @@ org.springframework.boot:type=Endpoint,name=loggersEndpoint
   JMXConfigurator"（该进程确实没配）且退出 1；`-p 999999` 打印排查清单退出 1；`-p 0` 退出 2；`-p abc` 由 picocli 退出 2。
 - `LocalPidConnectorTest` 会 attach 测试进程自身；环境不支持时 `Assume` 跳过，不会让 CI 变红。
 
+### 已完成（P3）：Actuator 兜底通道与 --target
+
+- `provider/ProviderFactory`：`-t/--target auto`（默认，先 logback 后 actuator）/ `logback` / `actuator`。
+  只有"MBean 不存在"（`IllegalStateException`）才触发兜底；连接不可用（`IOException`）照旧往外抛。
+  两条都没有时报错同时列出两边原因与目标侧 a/b 两种配置。未知取值是用法错误（退出码 2）。
+  取值刻意不带 `-jmx` 后缀：工具本身就是 JMX 工具，后缀没有信息量，只增加输入长度；
+  且 `id()` 与 `--target` 取值共用同一常量，改名不会造成两套叫法。
+- `provider/ActuatorJmxProvider`：按 `org.springframework.boot:type=Endpoint,*` 查询后按 `name` 含
+  `logger` 过滤（Spring Boot 1.5 `loggersEndpoint` / Spring Boot 2.7 `Loggers` 都命中），
+  **操作名与数据结构都不写死**：列表走 `Loggers` 属性 → `loggers()`/`getLoggers()` 操作；
+  单查走 `loggerLevels`/`getLogger`；写入走 `configureLogLevel`/`setLogLevel`，
+  参数由 `support/JmxInvocation` 按 `MBeanInfo` 现场构造（`String` 直通，枚举走 `Enum.valueOf`，
+  本地没有该类就明确报错并建议换通道，不猜）。
+- `support/JmxInvocation`：`findOperation(name, paramCount)` + `buildParams`，把"签名不确定性"收敛到一处。
+- 能力协商：`actuator` 通道的 `Capabilities` 声明不支持 reload，`ReloadCommand` 先看能力再执行，
+  不支持时给替代方案（`scan="true"` / 加 `<jmxConfigurator/>` 后换通道），退出码 1，不崩堆栈。
+
+**真实目标实测（Spring Boot 1.5.6 + logback 1.1.11，本机 19000）**——这是本阶段唯一可信依据，不是推测：
+
+```
+ATTR Loggers: java.lang.Object → LinkedHashMap{levels=[OFF, ERROR, …],
+                                             loggers={名字 → {configuredLevel, effectiveLevel}}}
+OP   getLoggers() → 同上（一次调用拿到全部 786 个 logger）
+OP   getLogger(String) → LinkedHashMap{configuredLevel, effectiveLevel}
+OP   setLogLevel(String, String) → void
+```
+
+两条实测结论，已写进代码注释与测试：
+
+1. `configuredLevel` 未配置时是 `null`（不是空串），统一收敛成空串；
+2. **查不存在的 logger 也会返回带 `effectiveLevel` 的 Map**，因此"logger 是否存在"
+   只能以全量列表为准，不能看单查返回值（直接关系到 P4 的"未找到 logger → 退出码 3"）。
+
+验收（真实目标）：`-t actuator get` 与 `-t logback get` 结果一致
+（786 个 logger、ROOT=WARN）；`-t auto` 在两条都在时选 logback；
+`-t actuator reload` 给出替代方案且退出 1（未改动目标）。
+耗时：`get ROOT` logback 354 ms vs actuator 423 ms——actuator 单查也要拉全量列表（786 条约 +70 ms），
+换来的是"目标无需 `<jmxConfigurator/>`"，可接受。
+
+测试：`ActuatorJmxProviderTest`（含 Spring Boot 1.5 的 `Map` 形态桩与 Spring Boot 2.x 的 `CompositeData` 形态桩、
+枚举入参、`loggers()` 操作形态、null 重置）、`ProviderSelectionTest`（auto 优先级、兜底、显式指定、
+两条都缺的报错、CLI 端到端）、`JmxInvocationTest`（签名适配）、
+`testing/StubSpringBoot15LoggersEndpoint` + `StubSpringBootLoggersEndpoint`（动态 MBean 桩，形态照抄实测）。
+
 ### 已完成（P0，先于 P1 落地）：连接超时
 
 原属 P4 的"超时控制"提前到 P1 之前做——它是体感最差的一项：RMI 握手没有超时参数，
@@ -246,7 +290,8 @@ org.springframework.boot:type=Endpoint,name=loggersEndpoint
 
 - P1：重构期间最容易回归的是 `ObjectName` 拼接与 `invoke` 签名，必须保留现有常量与原样调用路径。
 - P2：attach 受限于 OS 权限、JRE（无 tools.jar）、容器 PID namespace；失败分支必须先于功能分支实现。
-- P3：Actuator 操作签名与返回值形态存在版本差异（Boot 1.5 的 `setLogLevel(String,String)` 与 `LinkedHashMap` 返回值已实测；Boot 2.7 的 `configureLogLevel` 第二参可能是 `String` 也可能是 `LogLevel` 枚举、返回值可能是 OpenData 复合结构），因此本阶段以 `doctor` 实测签名驱动，先探测后编码，禁止猜测。**Boot 2.7 的签名尚未实测**，需要在升级后的真实进程（或临时起的 2.7 demo）上抓一次 MBeanInfo 再落地。
+- P3：~~Actuator 操作签名与返回值形态存在版本差异，先探测后编码、禁止猜测~~ —— **Spring Boot 1.5 已在真实目标上实测**（`Loggers` 属性/`getLoggers()` 返回 `LinkedHashMap{levels, loggers={名字→{configuredLevel, effectiveLevel}}}`、`getLogger(String)`、`setLogLevel(String,String)`），实现按 `MBeanInfo` 适配、两套命名都认，已留档于上文"已完成（P3）"。
+  **Spring Boot 2.7 仍未经真实进程验证**（本机只有 1.5 目标）：由于签名是运行时读取而非写死，2.7 上最多是解析层需补一种形态，不会出现"整条通道不可用"的静默失败——升级后请跑一次 `doctor` 与 `-t actuator get` 复核。
 - P4：`--json` 输出与退出码一旦发布即成为契约，字段名与码值需一次定稿；新增的退出码 `3` 要同时同步到 `ExitCodes`、`README` 与本文档。
-- P5：Boot 3.x 的 JMX 默认只暴露 `health`、logback ≥1.3 已无 `JMXConfigurator`，届时只剩 HTTP/自定义 endpoint 一条路；本阶段只出文档，不写代码。
-  （**注**：原计划"Boot 1.5 actuator 属旧命名模型、不在支持范围"一条已作废——Boot 1.5 端点已在真实进程上实测可用，且是现网唯一可行的兜底通道，已并入 P3。）
+- P5：Spring Boot 3.x 的 JMX 默认只暴露 `health`、logback ≥1.3 已无 `JMXConfigurator`，届时只剩 HTTP/自定义 endpoint 一条路；本阶段只出文档，不写代码。
+  （**注**：原计划"Spring Boot 1.5 actuator 属旧命名模型、不在支持范围"一条已作废——Spring Boot 1.5 端点已在真实进程上实测可用，且是现网唯一可行的兜底通道，已并入 P3。）

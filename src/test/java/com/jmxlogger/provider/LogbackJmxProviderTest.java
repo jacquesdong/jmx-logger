@@ -46,7 +46,7 @@ public class LogbackJmxProviderTest {
     public void identityAndCapabilities() throws Exception {
         LogbackJmxProvider provider = connect();
         try {
-            assertEquals("logback-jmx", provider.id());
+            assertEquals("logback", provider.id());
             assertTrue("logback 通道支持配置重载", provider.capabilities().isReloadSupported());
             assertEquals("default", provider.getConfiguratorName().getKeyProperty("Name"));
         } finally {

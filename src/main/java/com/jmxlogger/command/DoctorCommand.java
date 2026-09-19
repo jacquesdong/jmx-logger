@@ -46,7 +46,7 @@ public class DoctorCommand implements Callable<Integer> {
     private static final String LOGBACK_PATTERN =
             "ch.qos.logback.classic:Type=ch.qos.logback.classic.jmx.JMXConfigurator,*";
 
-    /** Boot actuator 端点统一挂在 {@code org.springframework.boot:type=Endpoint} 下。 */
+    /** Spring Boot actuator 端点统一挂在 {@code org.springframework.boot:type=Endpoint} 下。 */
     private static final String BOOT_ENDPOINT_PATTERN = "org.springframework.boot:type=Endpoint,*";
 
     private static final String RUNTIME_OBJECT_NAME = "java.lang:type=Runtime";
@@ -97,7 +97,7 @@ public class DoctorCommand implements Callable<Integer> {
         section(out, "候选 MBean");
         out.append("  logback JMXConfigurator    ").append(LOGBACK_PATTERN)
                 .append("  ->  ").append(logbackConfigurators.size()).append(" 个\n");
-        out.append("  Boot loggers 端点          ").append(BOOT_ENDPOINT_PATTERN)
+        out.append("  Spring Boot loggers 端点          ").append(BOOT_ENDPOINT_PATTERN)
                 .append("  ->  ").append(loggerEndpoints.size()).append(" 个\n");
         out.append('\n');
         for (ObjectName name : sorted(logbackConfigurators)) {
@@ -189,7 +189,7 @@ public class DoctorCommand implements Callable<Integer> {
     }
 
     /**
-     * Boot 各版本的端点命名不同（1.5 是 {@code name=loggersEndpoint}，2.x 是
+     * Spring Boot 各版本的端点命名不同（1.5 是 {@code name=loggersEndpoint}，2.x 是
      * {@code name=Loggers}），因此先按 domain+type 全量查，再按名字过滤，
      * 而不是写死某一种拼法。
      */
@@ -226,8 +226,10 @@ public class DoctorCommand implements Callable<Integer> {
         }
 
         if (hasActuator) {
-            out.append("  [可用] Spring Boot Actuator 的 loggers 端点存在，可作为兜底通道")
-                    .append("（P3 落地后 --target auto 会自动使用；当前版本尚只走 logback 通道）。\n");
+            out.append("  [可用] Spring Boot Actuator 的 loggers 端点存在：")
+                    .append(hasLogback
+                            ? "logback 通道优先，需强制走它时用 -t actuator。\n"
+                            : "--target auto 已自动兜底到它（get / set 可用，reload 不支持）。\n");
         } else {
             out.append("  [缺失] 未找到 Actuator loggers 端点。\n");
         }
@@ -246,8 +248,8 @@ public class DoctorCommand implements Callable<Integer> {
         out.append("    1) logback 通道（推荐，支持 reload）：logback.xml 中加 <jmxConfigurator/>，\n");
         out.append("       并以 -Dcom.sun.management.jmxremote.port=<port> 启动（rmi.port 与 port 保持一致）；\n");
         out.append("    2) actuator 通道：引入 spring-boot-starter-actuator。\n");
-        out.append("       Boot 2.7 默认 JMX 全暴露无需额外配置；");
-        out.append("Boot 3.x 需 management.endpoints.jmx.exposure.include=health,loggers。\n");
+        out.append("       Spring Boot 2.7 默认 JMX 全暴露无需额外配置；");
+        out.append("Spring Boot 3.x 需 management.endpoints.jmx.exposure.include=health,loggers。\n");
     }
 
     private void appendMBeanInfo(StringBuilder out, MBeanServerConnection mbsc, ObjectName name) {

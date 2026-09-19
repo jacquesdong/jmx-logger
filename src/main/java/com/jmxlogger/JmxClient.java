@@ -2,6 +2,7 @@ package com.jmxlogger;
 
 import com.jmxlogger.provider.LoggerProvider;
 import com.jmxlogger.provider.LogbackJmxProvider;
+import com.jmxlogger.provider.ProviderFactory;
 import com.jmxlogger.transport.RemoteJmxConnector;
 import com.jmxlogger.transport.TargetConnector;
 
@@ -42,13 +43,23 @@ public class JmxClient implements AutoCloseable {
     /**
      * 在已建立的传输层连接上工作：{@code -p/--pid} 的本地 attach 与 {@code -s} 的 RMI
      * 走的是同一个 {@link TargetConnector} 接口，本类不需要区分。
+     * 通道按 {@link ProviderFactory#AUTO} 选择。
      */
     public JmxClient(TargetConnector connector) throws IOException {
+        this(connector, ProviderFactory.AUTO);
+    }
+
+    /**
+     * @param target 通道选择，见 {@link ProviderFactory}（{@code auto} / {@code logback} /
+     *               {@code actuator}）
+     */
+    public JmxClient(TargetConnector connector, String target) throws IOException {
         this.connector = connector;
         try {
-            this.provider = new LogbackJmxProvider(connector);
+            this.provider = ProviderFactory.open(connector, target);
         } catch (IOException | RuntimeException e) {
             // 构造失败时不会有人调用 close()，这里必须自己收尾，否则 RMI 连接泄漏
+            // （ProviderFactory 只在"两条通道都不可用"时才关，单条通道失败归这里收尾）
             connector.close();
             throw e;
         }

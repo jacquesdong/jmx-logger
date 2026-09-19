@@ -1,6 +1,6 @@
 package com.jmxlogger.command;
 
-import com.jmxlogger.testing.StubBootEndpoint;
+import com.jmxlogger.testing.StubSpringBootEndpoint;
 import com.jmxlogger.testing.StubLogbackConfigurator;
 import com.jmxlogger.testing.TestJmxServer;
 import com.jmxlogger.transport.RemoteJmxConnector;
@@ -70,13 +70,13 @@ public class DoctorCommandTest {
     }
 
     @Test
-    public void detectsBootActuatorLoggerEndpointAsFallback() throws Exception {
+    public void detectsSpringBootActuatorLoggerEndpointAsFallback() throws Exception {
         server = TestJmxServer.start();
-        server.register(new StubBootEndpoint(),
+        server.register(new StubSpringBootEndpoint(),
                 new ObjectName("org.springframework.boot:type=Endpoint,name=Loggers"));
 
         String report = diagnose();
-        assertTrue("应列出 Boot loggers 端点，实际:\n" + report,
+        assertTrue("应列出 Spring Boot loggers 端点，实际:\n" + report,
                 report.contains("org.springframework.boot:type=Endpoint,name=Loggers"));
         assertTrue("应判定 actuator 可作为兜底通道，实际:\n" + report,
                 report.contains("[可用] Spring Boot Actuator 的 loggers 端点存在"));

@@ -4,6 +4,7 @@ import com.jmxlogger.command.DoctorCommand;
 import com.jmxlogger.command.GetCommand;
 import com.jmxlogger.command.ReloadCommand;
 import com.jmxlogger.command.SetCommand;
+import com.jmxlogger.provider.ProviderFactory;
 import com.jmxlogger.support.CommandSupport;
 import com.jmxlogger.support.ExitCodes;
 import com.jmxlogger.support.PasswordResolver;
@@ -69,6 +70,11 @@ public class JmxLoggerCli implements Runnable {
     private PasswordResolver passwordResolver = PasswordResolver.system();
     private String resolvedPassword;
     private boolean passwordResolved;
+
+    @Option(names = {"-t", "--target"}, paramLabel = "通道",
+            description = "日志通道: auto（先 logback，缺失时兜底 actuator）/ logback / actuator，"
+                    + "默认值为 ${DEFAULT-VALUE}")
+    private String target = ProviderFactory.AUTO;
 
     @Option(names = {"--timeout"}, paramLabel = "秒",
             description = "连接超时（秒），0 表示不限制，默认值为 ${DEFAULT-VALUE}")
@@ -144,9 +150,17 @@ public class JmxLoggerCli implements Runnable {
         return new RemoteJmxConnector(requireServer(), username, secret, toMillis(timeoutSeconds));
     }
 
-    /** 建立到目标 JVM 的 JmxClient 连接（传输层由 {@link #openConnector()} 决定）。 */
+    /**
+     * 建立到目标 JVM 的 JmxClient 连接（传输层由 {@link #openConnector()} 决定，
+     * 日志通道由 {@code --target} 决定，见 {@link ProviderFactory}）。
+     */
     public JmxClient connect() throws Exception {
-        return new JmxClient(openConnector());
+        return new JmxClient(openConnector(), target);
+    }
+
+    /** {@code -t/--target} 的原始取值：{@code auto} / {@code logback} / {@code actuator}。 */
+    public String getTarget() {
+        return target;
     }
 
     private String requireServer() {

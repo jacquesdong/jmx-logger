@@ -7,7 +7,7 @@ import java.util.List;
  * 连接本身由 {@link com.jmxlogger.transport.TargetConnector} 负责。
  *
  * <p>当前实现只有 {@link LogbackJmxProvider}；计划 P3 会加
- * {@code BootActuatorJmxProvider} 作为兜底通道，届时由 ProviderFactory 按
+ * {@code ActuatorJmxProvider} 作为兜底通道，届时由 ProviderFactory 按
  * {@code --target} 选择。
  *
  * <p>方法命名沿用 logback 侧的概念（configured / effective），
@@ -15,7 +15,7 @@ import java.util.List;
  */
 public interface LoggerProvider extends AutoCloseable {
 
-    /** Provider 标识，如 {@code logback-jmx}、{@code boot-actuator-jmx}。 */
+    /** Provider 标识，即 {@code --target} 的取值：{@code logback} / {@code actuator}。 */
     String id();
 
     /** 能力声明；{@code reload} 类命令要先看这里再决定能不能做。 */

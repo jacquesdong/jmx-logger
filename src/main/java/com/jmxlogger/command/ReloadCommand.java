@@ -27,10 +27,23 @@ public class ReloadCommand implements Callable<Integer> {
             description = "目标 JVM 上的 logback 配置文件路径（留空则恢复默认配置）")
     private String filePath;
 
-    /** 同 {@code GetCommand}：异常交给顶层处理器，本方法不 {@code System.exit}。 */
+    /**
+     * 同 {@code GetCommand}：异常交给顶层处理器，本方法不 {@code System.exit}。
+     *
+     * <p>重载是<b>能力相关</b>的：actuator 兜底通道只能读写级别，不支持重载配置，
+     * 这里先看 {@code capabilities()} 再决定是执行还是给出替代方案，而不是让目标侧
+     * 抛一个含糊的错误。
+     */
     @Override
     public Integer call() throws Exception {
         try (JmxClient client = parent.connect()) {
+            if (!client.provider().capabilities().isReloadSupported()) {
+                throw new IllegalStateException("当前通道 " + client.provider().id() + " 不支持重载配置。"
+                        + "替代方案：\n"
+                        + "  1) 目标 logback.xml 开 <configuration scan=\"true\" scanPeriod=\"30 seconds\">，"
+                        + "改文件后目标自动重载；\n"
+                        + "  2) 目标 logback.xml 加 <jmxConfigurator/> 后用 --target logback 走 logback 通道。");
+            }
             if (filePath == null || filePath.isEmpty()) {
                 client.reloadDefaultConfiguration();
                 System.out.println("已重新加载默认配置 (reloadDefaultConfiguration)");

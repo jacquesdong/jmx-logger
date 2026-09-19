@@ -30,21 +30,23 @@ fat jar 内已包含 picocli，拷到任意有 JRE/JDK 的机器上 `java -jar` 
 ## 用法
 
 ```
-用法: jmx-logger [-hvV] [--password[=密码]] [-p=pid] [-s=<server>] [--timeout=秒]
-      [--username=<username>] [COMMAND]
+用法: jmx-logger [-hvV] [--password[=密码]] [-p=pid] [-s=<server>] [-t=通道]
+      [--timeout=秒] [--username=<username>] [COMMAND]
 ```
 
 | 全局选项 | 说明 | 默认 |
 | --- | --- | --- |
 | `-s, --server` | 目标 JVM 的 JMX 地址 `host:port`（远程 RMI 通道） | `127.0.0.1:19000` |
 | `-p, --pid` | 目标 JVM 的进程号（本地 attach 通道）；指定后**优先于** `-s` | 空 |
+| `-t, --target` | 日志通道：`auto` / `logback` / `actuator`，见"两条日志通道" | `auto` |
 | `--username` | JMX 用户名（开启认证时） | 空 |
 | `--password` | JMX 密码（开启认证时）。不带取值时交互式读取；省略时读环境变量 `JMX_LOGGER_PASSWORD` | 空 |
 | `--timeout` | 连接超时（秒），`0` 表示不限制 | `10` |
 | `-v, --verbose` | 出错时打印完整堆栈（默认只打一行原因） | 关 |
 | `-h, --help` / `-V, --version` | 帮助 / 版本与构建信息（`git describe` + 提交时间，取不到时为版本号） | — |
 
-短选项只给"指向哪个 JVM"用（`-s` / `-p`）；认证参数只有长选项。
+短选项只给高频参数："指向哪个 JVM"（`-s` / `-p`）与"走哪条通道"（`-t`）；
+认证参数只有长选项。
 
 连接串形如 `service:jmx:rmi:///jndi/rmi://<server>/jmxrmi`。
 
@@ -78,6 +80,39 @@ attach API 全程反射调用（JDK 8 位于 `tools.jar`，JDK 9+ 归入 `jdk.at
 3. `/tmp` 可写（attach 依赖 `/tmp` 下的 UNIX socket）；
 4. 容器场景需与目标是同一 PID namespace（`--pid=host` 或同一 Pod）；
 5. 目标进程未被 ptrace 限制（docker 默认 seccomp、K8s 安全策略可能拦）。
+
+### 两条日志通道（`-t/--target`）
+
+解决的是"连得上 JMX、但目标没配 `<jmxConfigurator/>`"（或 Logback ≥ 1.3 已移除该 MBean）：
+
+| 通道 | 依据的 MBean | `get` / `set` | `reload` | 目标侧需要 |
+| --- | --- | --- | --- | --- |
+| `logback` | `ch.qos.logback.classic...JMXConfigurator` | 支持 | **支持** | `logback.xml` 加 `<jmxConfigurator/>` |
+| `actuator` | `org.springframework.boot:type=Endpoint,name=Loggers`（Spring Boot 2.7）<br>`name=loggersEndpoint`（Spring Boot 1.5） | 支持 | 不支持 | `spring-boot-starter-actuator` |
+
+端点命名与操作名两套都认（Spring Boot 1.5 的 `getLoggers()`/`getLogger`/`setLogLevel`
+与 Spring Boot 2.7 的 `loggers()`/`loggerLevels`/`configureLogLevel`），
+已在真实 Spring Boot 1.5.6 目标上实测：一次调用即可拿到全部 logger（786 个），
+结果与 `logback` 通道一致。
+
+`-t auto`（默认）**先 logback 后 actuator**：logback 能力最全（含配置重载），
+actuator 只作为兜底；两条都没有时报错里同时给出两边的缺失原因与目标侧该加的配置。
+显式指定某一条则不再自动切换——用于"两条都有但我要走某一条"。
+
+```bash
+jmx-logger -s 10.0.0.5:19000 get                # auto（默认）
+jmx-logger -s 10.0.0.5:19000 -t actuator get    # 强制走 actuator
+```
+
+actuator 通道的两点限制：
+
+- **不支持 `reload`**（端点只能读写级别）。此时 `reload` 会直接给出替代方案
+  （目标 `logback.xml` 开 `scan="true"`；或加 `<jmxConfigurator/>` 后走 `-t logback`），
+  退出码 `1`，不会崩堆栈。
+- **操作签名不写死**：端点 MBean 是动态 MBean，`configureLogLevel` 的级别参数在
+  Spring Boot 各版本可能是 `String`，也可能是本地 classpath 没有的 `LogLevel` 枚举。
+  工具按目标自报的 `MBeanInfo` 现场构造参数（`doctor` 打印的就是这份签名）；
+  构造不出来就明确报错并建议换通道，不会猜。
 
 ### get — 查看级别
 
@@ -132,7 +167,7 @@ jmx-logger -s 10.0.0.5:19000 doctor
    并打印命中 MBean 的**完整 MBeanInfo**（属性及其可写性、操作名 + 完整参数类型 + 返回类型）；
 3. **结论与建议**：哪条通道可用、缺什么，以及目标侧该加的最小配置。
 
-真实目标（Boot 1.5.6 + logback 1.1.11）上的一段输出：
+真实目标（Spring Boot 1.5.6 + logback 1.1.11）上的一段输出：
 
 ```
 [连接]
@@ -143,7 +178,7 @@ jmx-logger -s 10.0.0.5:19000 doctor
   classpath 识别: logback-classic 1.1.11, spring-boot-actuator 1.5.6.RELEASE
 [候选 MBean]
   logback JMXConfigurator    ch.qos.logback.classic:Type=...JMXConfigurator,*  ->  1 个
-  Boot loggers 端点          org.springframework.boot:type=Endpoint,*  ->  1 个
+  Spring Boot loggers 端点          org.springframework.boot:type=Endpoint,*  ->  1 个
 
   ch.qos.logback.classic:Name=default,Type=ch.qos.logback.classic.jmx.JMXConfigurator
     属性:
@@ -155,7 +190,7 @@ jmx-logger -s 10.0.0.5:19000 doctor
       ...
 ```
 
-Boot 各版本的端点命名不同（1.5 是 `name=loggersEndpoint`，2.7 是 `name=Loggers`），
+Spring Boot 各版本的端点命名不同（1.5 是 `name=loggersEndpoint`，2.7 是 `name=Loggers`），
 因此 `doctor` 按 `org.springframework.boot:type=Endpoint,*` 全量查再按名字过滤，不写死某一种拼法。
 
 > 连不上或找不到 MBean 时，先跑 `doctor`。
@@ -220,9 +255,9 @@ ch.qos.logback.classic:Name=<contextName>,Type=ch.qos.logback.classic.jmx.JMXCon
   `ch.qos.logback.classic.jmx.JMXConfigurator` 方法签名完全一致
   （`LoggerList` 属性、`getLoggerLevel`、`getLoggerEffectiveLevel`、`setLoggerLevel`、
   `reloadDefaultConfiguration`、`reloadByFileName`），因此同一份客户端在两个版本上通用。
-- **Logback ≥ 1.3 起彻底移除了 JMXConfigurator**（Boot 3.x 自带 1.4.x），届时本工具当前的实现路径失效。
+- **Logback ≥ 1.3 起彻底移除了 JMXConfigurator**（Spring Boot 3.x 自带 1.4.x），届时本工具当前的实现路径失效。
   应对方案见下方"路线图"（Actuator / HTTP 通道）。
-- 工具自身编译目标保持 Java 8，Boot 2.7.18 同样要求 Java 8，无需调整。
+- 工具自身编译目标保持 Java 8，Spring Boot 2.7.18 同样要求 Java 8，无需调整。
 
 ## 退出码
 
@@ -249,7 +284,11 @@ java -jar target/jmx-logger.jar -s 10.0.0.5:19000 get || echo "失败，退出�
 | 不知道该从哪查起 | 先跑 `doctor`：它会列出候选 MBean、打印操作签名，并给出目标侧该加的配置 |
 | `无法连接到 JMX 服务器` | 端口不通 / 目标未加 `com.sun.management.jmxremote` / 防火墙未放通 RMI 端口；用 `nc -vz host port` 先确认连通性 |
 | `连接 JMX 服务器超时（超过 N ms）` | TCP 能建连但对面不回应，典型是防火墙丢包或 `jmxremote.rmi.port` 未放通；按报错里的提示逐项核对，或先用 `--timeout 30` 排除"只是慢" |
-| `未找到 Logback JMXConfigurator MBean` | 目标 `logback.xml` 缺 `<jmxConfigurator/>`，或该 JVM 用的不是 Logback |
+| `未找到 Logback JMXConfigurator MBean` | 目标 `logback.xml` 缺 `<jmxConfigurator/>`，或该 JVM 用的不是 Logback；带 actuator 时会自动兜底（见"两条日志通道"），不想兜底就 `-t logback` 看原始报错 |
+| `目标 JVM 上没有可用的日志通道` | logback 与 actuator 两条都没找到：按报错里的 a/b 二选一加配置，或 `-t` 强制指定；用 `doctor` 看目标上真实有哪些 MBean |
+| `无法把取值 "DEBUG" 转成目标 MBean 声明的参数类型 LogLevel` | actuator 端点把级别暴露成本地没有的 `LogLevel` 枚举，远程无法构造：改用 `-t logback`，或用 `doctor` 看真实签名 |
+| `当前通道 actuator 不支持重载配置` | actuator 端点不支持重载：目标 `logback.xml` 开 `scan="true"`，或加 `<jmxConfigurator/>` 后走 `-t logback` |
+| `未知的 -t/--target 取值 "..."` | 取值只有 `auto` / `logback` / `actuator` 三个 |
 | 连上后很快断开 / 卡住 | 未设 `java.rmi.server.hostname`，或 `rmi.port` 与 `port` 不一致 |
 | `set` 后级别没变 | 确认改的是正确的 logger 名；子 logger 会覆盖父 logger；`reload` 会重置为配置文件中的值 |
 | 认证失败 | 检查 `jmxremote.password` 文件权限必须为 `600`，且 `--username`/密码与目标配置一致；密码来源优先级见"安全建议"（环境变量没生效时通常是漏了 `--username`） |
@@ -285,16 +324,17 @@ java -jar target/jmx-logger.jar -s 10.0.0.5:19000 --username admin --password '.
 
 ## 路线图
 
-按阶段推进，每阶段可独立验收与回滚（详见 `doc/plan_v1.0.1.md`）。**P1、P2 已完成**：
-transport/provider 抽象、`doctor` 诊断子命令、统一退出码与 `--verbose`、`-p/--pid` 本地 attach。
+按阶段推进，每阶段可独立验收与回滚（详见 `doc/plan_v1.0.1.md`）。**P1、P2、P3 已完成**：
+transport/provider 抽象、`doctor` 诊断子命令、统一退出码与 `--verbose`、`-p/--pid` 本地 attach、
+`-t/--target` 通道选择与 Actuator 兜底。
 
 | 阶段 | 内容 |
 | --- | --- |
 | P1 | ~~抽出 transport/provider 抽象~~ ✅；~~新增 `doctor` 诊断子命令~~ ✅；~~统一退出码与 `--verbose`~~ ✅ |
 | P2 | ~~`-p/--pid` 本地 attach（目标未开 JMX 端口时，通过 attach API 动态拉起管理代理，目标侧零配置）~~ ✅ |
-| P3 | Spring Boot Actuator 兜底通道（Boot 1.5 `name=loggersEndpoint` / Boot 2.7 `name=Loggers`，签名由 `doctor` 实测驱动），目标无 `<jmxConfigurator/>` 时自动切换 |
+| P3 | ~~Spring Boot Actuator 兜底通道（`-t auto` 在目标无 `<jmxConfigurator/>` 时自动切换到 `actuator`：按 `MBeanInfo` 现场构造参数、reload 不支持时给出替代方案）~~ ✅ |
 | P4 | `--json` 输出、`set inherit`（重置为继承级别）、`--object-name`（多 LoggerContext） |
-| P5 | Boot 3.x / Logback 1.4+ 的 HTTP 通道预留 |
+| P5 | Spring Boot 3.x / Logback 1.4+ 的 HTTP 通道预留 |
 
 ## 开发
 
