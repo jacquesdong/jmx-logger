@@ -286,18 +286,20 @@ transport/provider 抽象、`doctor` 诊断子命令、统一退出码与 `--ver
 ./mvnw clean package   # 打成 fat jar
 ```
 
-构建时会由 `git-commit-id-maven-plugin` 把 describe、版本号、commit、提交时间写进
-`target/classes/git.properties`（随 fat jar 一起发布），`jmx-logger -V` 因此能回答
-"这个 jar 是哪次提交打的"：
+`jmx-logger -V` 能回答"这个 jar 是哪次提交打的"，读两个构建期生成的属性文件：
+
+- `git.properties`（`git-commit-id-maven-plugin` 生成）：`git describe`、commit、提交时间；
+- `app.properties`（maven 资源过滤写入 `app.version`）：**只依赖 pom，一定有**，
+  没有 `.git` 的构建（源码包、CI 归档）也随 fat jar 发布。
 
 ```console
 $ java -jar target/jmx-logger.jar -V
 jmx-logger v1.0.0-21-gcb6fe8ed+ (20260919)   # describe + 提交时间；结尾的 + 表示工作区有未提交改动
 ```
 
-`-V` 的输出优先级：`git.commit.id.describe` → pom 版本号（`jmx-logger 1.0.0`）→
-`jmx-logger (构建信息不可用：未找到 git.properties)`。最后一种出现在没有 `.git` 的构建
-（源码包、CI 归档），此时插件跳过而非失败，其他命令不受影响。
+输出优先级：`git.commit.id.describe` → pom 版本号（`jmx-logger 1.0.0`，无 `.git` / 浅克隆 / 无 tag）→
+`jmx-logger (构建信息不可用：未找到版本属性文件)`（IDE 直接跑未过滤的 resources 才会出现）。
+没有 `.git` 时插件跳过而非构建失败，其他命令不受影响。
 
 测试说明：
 

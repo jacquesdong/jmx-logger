@@ -60,6 +60,35 @@ public class BuildInfoTest {
         assertEquals("jmx-logger 1.0.0", info.versionLine());
     }
 
+    /**
+     * 没有 .git 的构建（源码包、CI 归档）没有 git.properties，
+     * 只有过滤出来的 app.properties：这时也必须给出版本号。
+     */
+    @Test
+    public void usesFilteredPomVersionWhenGitPropertiesMissing() {
+        Properties props = new Properties();
+        props.setProperty("app.version", "1.0.0");
+
+        BuildInfo info = BuildInfo.from(props);
+
+        assertTrue(info.isKnown());
+        assertEquals("1.0.0", info.version());
+        assertEquals("jmx-logger 1.0.0", info.versionLine());
+    }
+
+    /** 资源过滤没跑时会留下 ${project.version} 原样，不能把它当成版本号打印出来。 */
+    @Test
+    public void treatsUnresolvedPlaceholderAsUnknown() {
+        Properties props = new Properties();
+        props.setProperty("app.version", "${project.version}");
+
+        BuildInfo info = BuildInfo.from(props);
+
+        assertFalse(info.isKnown());
+        assertEquals(BuildInfo.UNKNOWN, info.version());
+        assertTrue(info.versionLine().contains("构建信息不可用"));
+    }
+
     @Test
     public void fallsBackToUnknownWhenPropertiesAreEmpty() {
         BuildInfo info = BuildInfo.from(new Properties());
