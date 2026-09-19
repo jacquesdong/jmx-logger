@@ -146,7 +146,7 @@ public class ActuatorJmxProvider implements LoggerProvider {
     @Override
     public String getLoggerLevel(String loggerName) throws Exception {
         Levels levels = levelsOf(loggerName);
-        // 与 logback 侧一致：查不到 / 未配置都返回空串，由命令层显示 (inherited)
+        // 与 logback 侧一致：查不到 / 未配置都返回空串，由命令层留空（含义在表后脚注说明）
         return levels == null ? "" : levels.configured;
     }
 
@@ -171,7 +171,11 @@ public class ActuatorJmxProvider implements LoggerProvider {
                     + "configureLogLevel / setLogLevel(name, level) 操作，无法设置级别。\n"
                     + "用 doctor 打印该端点的 MBeanInfo 看真实可用操作。");
         }
-        Object[] params = JmxInvocation.buildParams(operation, new String[]{loggerName, level});
+        // 空串 / null 表示「恢复继承」，actuator 侧的清除指令是 Java null
+        // （JmxInvocation 对 null 原样穿透，级别参数是 LogLevel 枚举时同样成立），
+        // 不能原样下发空串——那是无效级别，不是清除。
+        String targetLevel = level == null || level.isEmpty() ? null : level;
+        Object[] params = JmxInvocation.buildParams(operation, new String[]{loggerName, targetLevel});
         mbsc.invoke(endpointName, operation.getName(), params, JmxInvocation.signature(operation));
         cache = null;
     }

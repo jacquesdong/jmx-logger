@@ -89,18 +89,33 @@ public class JmxClientTest {
         assertEquals("WARN", stub.getLoggerLevel("com.example.Foo"));
     }
 
+    /**
+     * API 层把 {@code null} 与空串都翻译成目标侧字符串 {@code "null"}：
+     * 直接下发 Java null 会被 logback 静默忽略（源码首行 return），翻译后才真的重置。
+     */
     @Test
-    public void setLoggerLevelWithJavaNullIsSilentlyIgnoredByTarget() throws Exception {
+    public void setLoggerLevelWithJavaNullResetsToInherited() throws Exception {
         JmxClient client = new JmxClient(server.server(), null, null);
         try {
             client.setLoggerLevel("com.example.Foo.bar", null);
         } finally {
             client.close();
         }
-        // logback 的 setLoggerLevel 首行就是 `if (levelStr == null) return;`，
-        // 所以传 Java null 不会重置级别，只是白跑一趟。
         assertTrue(stub.getInvocations().contains("setLoggerLevel(com.example.Foo.bar,null)"));
-        assertEquals("DEBUG", stub.getLoggerLevel("com.example.Foo.bar"));
+        assertEquals("", stub.getLoggerLevel("com.example.Foo.bar"));
+    }
+
+    /** {@code clear} 命令下发的就是空串，必须与 Java null 等价。 */
+    @Test
+    public void setLoggerLevelWithEmptyStringResetsToInherited() throws Exception {
+        JmxClient client = new JmxClient(server.server(), null, null);
+        try {
+            client.setLoggerLevel("com.example.Foo.bar", "");
+        } finally {
+            client.close();
+        }
+        assertTrue(stub.getInvocations().contains("setLoggerLevel(com.example.Foo.bar,null)"));
+        assertEquals("", stub.getLoggerLevel("com.example.Foo.bar"));
     }
 
     @Test

@@ -1,5 +1,6 @@
 package com.jmxlogger;
 
+import com.jmxlogger.command.ClearCommand;
 import com.jmxlogger.command.DoctorCommand;
 import com.jmxlogger.command.GetCommand;
 import com.jmxlogger.command.ReloadCommand;
@@ -21,8 +22,8 @@ import picocli.CommandLine.Option;
  *
  * <pre>
  * <pre>
- * 用法: jmx-logger -s host:port [--username user] [--password ...] <get|set|reload|doctor> ...
- * 用法: jmx-logger -p pid <get|set|reload|doctor> ...          （本地 attach，目标侧无需开端口）
+ * 用法: jmx-logger -s host:port [--username user] [--password ...] <get|set|clear|reload|doctor> ...
+ * 用法: jmx-logger -p pid <get|set|clear|reload|doctor> ...    （本地 attach，目标侧无需开端口）
  * </pre>
  *
  * <p>错误处理统一走 {@link CommandSupport}：子命令直接抛异常，
@@ -38,6 +39,7 @@ import picocli.CommandLine.Option;
         subcommands = {
                 GetCommand.class,
                 SetCommand.class,
+                ClearCommand.class,
                 ReloadCommand.class,
                 DoctorCommand.class
         }

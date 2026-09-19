@@ -128,11 +128,14 @@ jmx-logger -s 10.0.0.5:19000 get -r com.example  # 递归：com.example 及其�
 Logger                                             Level      Effective
 -------------------------------------------------- ---------- ----------
 ROOT                                               INFO       INFO
-com.example                                        (inherited) INFO
+com.example                                                   INFO
 com.example.service.OrderService                   DEBUG      DEBUG
+Level 为空表示该 logger 未单独配置级别，继承父 logger
 ```
 
-- `Level` 为该 logger 自身配置的级别，`(inherited)` 表示未单独配置、继承父 logger；
+- `Level` 为该 logger 自身配置的级别；**为空**表示未单独配置、继承父 logger——目标侧返回的
+  就是空串（logback 的 `EMPTY`，actuator 的空 `configuredLevel`），输出如实留空，
+  不另造 `(inherited)` 这类目标侧并不存在的取值；
 - `Effective` 为实际生效级别（由 Logback 侧计算）。
 
 ### set — 修改级别
@@ -143,6 +146,29 @@ jmx-logger -s 10.0.0.5:19000 set com.example.service.OrderService DEBUG
 
 合法级别（大小写不敏感）：`TRACE`、`DEBUG`、`INFO`、`WARN`、`ERROR`、`ALL`、`OFF`。
 级别非法时不会连接目标，直接以退出码 `2` 结束。
+
+要把 logger 恢复成"继承父 logger"，**不是**给 `set` 传特殊值——空串与 `null` 都会被拒绝
+并提示改用 `clear` 命令：
+
+```bash
+jmx-logger -s 10.0.0.5:19000 set com.example.Foo ""      # 退出码 2：非法级别
+jmx-logger -s 10.0.0.5:19000 clear com.example.Foo       # 正确写法
+```
+
+### clear — 恢复继承父 logger
+
+```bash
+jmx-logger -s 10.0.0.5:19000 clear com.example.service.OrderService
+```
+
+清除该 logger **自身**配置的级别，使其回到继承父 logger 的状态（`get` 里该行的 `Level` 变成空）。
+
+- 只影响这一个 logger：临时调完级别要复原就用它，不要用 `reload`——`reload` 会把**所有**
+  logger 拉回配置文件状态，且 actuator 通道不支持
+- 两条通道都支持。目标侧"清除"的指令并不相同（logback 要字符串 `"null"`，actuator 要
+  Java `null`），由工具按通道翻译，命令行不用关心
+- `<name>` 必填：不带名字的"全部清除"不做，批量复原请走 `reload`
+- 对本来就是继承状态的 logger 再执行一次是幂等的，不报错
 
 ### reload — 重载配置
 
@@ -333,7 +359,7 @@ transport/provider 抽象、`doctor` 诊断子命令、统一退出码与 `--ver
 | P1 | ~~抽出 transport/provider 抽象~~ ✅；~~新增 `doctor` 诊断子命令~~ ✅；~~统一退出码与 `--verbose`~~ ✅ |
 | P2 | ~~`-p/--pid` 本地 attach（目标未开 JMX 端口时，通过 attach API 动态拉起管理代理，目标侧零配置）~~ ✅ |
 | P3 | ~~Spring Boot Actuator 兜底通道（`-t auto` 在目标无 `<jmxConfigurator/>` 时自动切换到 `actuator`：按 `MBeanInfo` 现场构造参数、reload 不支持时给出替代方案）~~ ✅ |
-| P4 | `--json` 输出、`set inherit`（重置为继承级别）、`--object-name`（多 LoggerContext） |
+| P4 | `--json` 输出、`clear` 命令（恢复继承级别）、`--object-name`（多 LoggerContext） |
 | P5 | Spring Boot 3.x / Logback 1.4+ 的 HTTP 通道预留 |
 
 ## 开发

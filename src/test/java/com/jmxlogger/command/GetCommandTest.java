@@ -39,7 +39,7 @@ public class GetCommandTest {
     }
 
     @Test
-    public void listsAllLoggersSortedWithInheritedMarker() throws Exception {
+    public void listsAllLoggersSortedWithBlankLevelForInherited() throws Exception {
         CliRunner.Result result = CliRunner.run("-s", server.server(), "get");
 
         assertEquals("列出全部应当成功，实际:\n" + result, ExitCodes.OK, result.exitCode);
@@ -47,8 +47,26 @@ public class GetCommandTest {
         // 排序是输出契约的一部分：ROOT(大写)排在 com.* 之前
         assertTrue("输出应按 logger 名排序，实际:\n" + result,
                 result.out.indexOf("ROOT") < result.out.indexOf("com.example.Foo"));
-        assertTrue("未配置级别的 logger 应显示为继承，实际:\n" + result, result.out.contains("(inherited)"));
+        // 目标侧的真值是空串（logback 的 EMPTY 常量），输出就该是空：
+        // 不渲染 "(inherited)" 这类目标侧并不存在的取值
+        assertTrue("不该再渲染 (inherited)，实际:\n" + result, !result.out.contains("(inherited)"));
+        assertTrue("空 Level 的含义必须写在脚注里，实际:\n" + result,
+                result.out.contains("Level 为空表示该 logger 未单独配置级别，继承父 logger"));
+
+        String row = rowOf(result.out, "com.example.Foo");
+        assertTrue("应列出 com.example.Foo，实际:\n" + result, row.length() > 61);
+        assertEquals("未配置级别时 Level 列应留空，实际:\n" + result, "", row.substring(51, 61).trim());
         assertTrue("应显示生效级别，实际:\n" + result, result.out.contains("DEBUG"));
+    }
+
+    /** 取表格中该 logger 所在的行：列宽固定，logger 50 + 空格 + level 10 + 空格 + effective 10。 */
+    private static String rowOf(String out, String loggerName) {
+        for (String line : out.split("\r?\n")) {
+            if (line.startsWith(loggerName)) {
+                return line;
+            }
+        }
+        return "";
     }
 
     @Test

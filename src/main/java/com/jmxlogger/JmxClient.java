@@ -94,10 +94,12 @@ public class JmxClient implements AutoCloseable {
     /**
      * 设置 logger 级别。
      *
-     * <p>目标侧 logback 的 {@code setLoggerLevel} 有特殊约定：{@code level} 传
-     * <b>Java null 会被静默忽略</b>（源码首行 {@code if (levelStr == null) return;}），
-     * 想恢复"继承父 logger"必须传<b>字符串 {@code "null"}</b>；传了无法识别的级别同样静默忽略。
-     * 两种情形都不报错，所以调用方要在本地就把级别校验干净。
+     * <p>{@code level} 为<b>空串或 {@code null}</b> 时表示「清除该 logger 自身的级别配置，
+     * 恢复继承父 logger」，由 Provider 按通道翻译（logback 下发字符串 {@code "null"}，
+     * actuator 下发 Java {@code null}）——命令行侧对应 {@code clear} 子命令。
+     *
+     * <p>其余取值原样下发；目标侧对无法识别的级别静默忽略（不报错），
+     * 所以调用方要在本地就把级别校验干净。
      */
     public void setLoggerLevel(String loggerName, String level) throws Exception {
         provider.setLoggerLevel(loggerName, level);

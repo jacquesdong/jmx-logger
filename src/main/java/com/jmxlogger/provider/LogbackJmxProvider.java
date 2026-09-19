@@ -113,8 +113,21 @@ public class LogbackJmxProvider implements LoggerProvider {
 
     @Override
     public void setLoggerLevel(String loggerName, String level) throws Exception {
-        invoke("setLoggerLevel", new Object[]{loggerName, level},
+        invoke("setLoggerLevel", new Object[]{loggerName, toTargetLevel(level)},
                 new String[]{String.class.getName(), String.class.getName()});
+    }
+
+    /**
+     * 空串 / {@code null} 表示「恢复继承」，logback 侧只认<b>字符串 {@code "null"}</b>：
+     * <ul>
+     *   <li>直接下发 Java {@code null} 会被目标侧静默忽略——源码首行就是
+     *       {@code if (levelStr == null) return;}；</li>
+     *   <li>下发空串同样无效——会落到 {@code Level.toLevel("", null)} 得到 null 后静默返回。</li>
+     * </ul>
+     * 所以"恢复继承"必须在本地翻译成字符串 {@code "null"}，不能原样下发。
+     */
+    private static String toTargetLevel(String level) {
+        return level == null || level.isEmpty() ? "null" : level;
     }
 
     @Override

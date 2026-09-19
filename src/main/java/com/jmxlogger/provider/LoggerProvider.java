@@ -40,11 +40,19 @@ public interface LoggerProvider extends AutoCloseable {
     /**
      * 设置 logger 级别。
      *
-     * <p>{@code level} 原样下发给目标侧，不做本地改写：目标侧 logback 的
-     * {@code setLoggerLevel} 有特殊约定——传 <b>Java null 会被静默忽略</b>
-     * （源码首行 {@code if (levelStr == null) return;}），要恢复"继承父 logger"
-     * 必须传<b>字符串 {@code "null"}</b>；传了无法识别的级别同样静默忽略。
-     * 由调用方（命令层）负责把用户输入翻译成目标侧认可的取值。
+     * <p>{@code level} 为<b>空串或 {@code null}</b> 时表示「清除该 logger 自身的级别配置，
+     * 恢复继承父 logger」，由本实现按通道翻译成目标侧认可的取值：
+     * <ul>
+     *   <li>logback：下发<b>字符串 {@code "null"}</b>——Java {@code null} 与空串都会被目标侧
+     *       静默忽略（源码首行 {@code if (levelStr == null) return;}，空串则过不了
+     *       {@code Level.toLevel}），绝不能原样下发；</li>
+     *   <li>actuator：下发 <b>Java {@code null}</b>——{@code JmxInvocation} 对 null 原样穿透，
+     *       而空串是无效级别，同样不能原样下发。</li>
+     * </ul>
+     * 命令行侧只有 {@code clear} 子命令产生这个取值；{@code set} 不接受空串，也不接受
+     * {@code "null"}（那是 logback 目标侧的指令，不是用户输入）。
+     *
+     * <p>其余取值原样下发；目标侧对无法识别的级别同样静默忽略，所以调用方仍要在本地先校验。
      */
     void setLoggerLevel(String loggerName, String level) throws Exception;
 

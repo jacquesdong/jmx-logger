@@ -39,9 +39,12 @@ public class SetCommand implements Callable<Integer> {
     public Integer call() throws Exception {
         String upper = level.toUpperCase(Locale.ROOT);
         if (!VALID_LEVELS.contains(upper)) {
-            // 非法级别是用法错误（退出码 2），且不该为此连一次目标 JVM
-            throw new IllegalArgumentException("非法的日志级别 \"" + level
-                    + "\"，合法值: " + String.join(", ", VALID_LEVELS));
+            // 非法级别是用法错误（退出码 2），且不该为此连一次目标 JVM。
+            // 空串与 "null" 一样拒绝：恢复继承有专门的 clear 命令，不靠 set 的边界取值表达，
+            // 两个入口做同一件事迟早会让人分不清哪个才是推荐写法。
+            throw new IllegalArgumentException("非法的日志级别 " + (level.isEmpty() ? "空串" : "\"" + level + "\"")
+                    + "，合法值: " + String.join(", ", VALID_LEVELS) + "；"
+                    + "要清除该 logger 自身的级别配置、恢复继承父 logger，请用 clear 命令");
         }
 
         try (JmxClient client = parent.connect()) {

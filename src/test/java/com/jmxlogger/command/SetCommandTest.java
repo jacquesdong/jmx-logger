@@ -68,6 +68,31 @@ public class SetCommandTest {
                 stub.getInvocations().isEmpty());
     }
 
+    /**
+     * 空串（以及 {@code "null"}）都不是合法级别：恢复继承是 {@code clear} 命令的事，
+     * {@code set} 不接受这类边界取值——同一个操作有两个入口，迟早会让人分不清哪个才推荐。
+     */
+    @Test
+    public void rejectsEmptyLevelAndPointsAtClearCommand() throws Exception {
+        CliRunner.Result result = CliRunner.run("-s", server.server(), "set", "com.example.Foo", "");
+
+        assertEquals("空串是用法错误（2），不是运行时错误，实际:\n" + result, ExitCodes.USAGE, result.exitCode);
+        assertTrue("报错应指引改用 clear 命令，实际:\n" + result, result.err.contains("clear"));
+        assertTrue("非法级别不该为此连一次目标 JVM，实际下发:\n" + stub.getInvocations(),
+                stub.getInvocations().isEmpty());
+    }
+
+    @Test
+    public void rejectsNullStringLevel() throws Exception {
+        CliRunner.Result result = CliRunner.run("-s", server.server(), "set", "com.example.Foo", "null");
+
+        assertEquals("\"null\" 是 logback 目标侧的指令，不是用户输入，实际:\n" + result,
+                ExitCodes.USAGE, result.exitCode);
+        assertTrue("报错应指引改用 clear 命令，实际:\n" + result, result.err.contains("clear"));
+        assertTrue("不该为此连一次目标 JVM，实际下发:\n" + stub.getInvocations(),
+                stub.getInvocations().isEmpty());
+    }
+
     @Test
     public void requiresTheLevelParameter() throws Exception {
         CliRunner.Result result = CliRunner.run("-s", server.server(), "set", "com.example.Foo");

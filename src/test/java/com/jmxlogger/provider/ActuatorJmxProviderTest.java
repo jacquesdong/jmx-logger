@@ -161,6 +161,25 @@ public class ActuatorJmxProviderTest {
         assertTrue(mutable.getInvocations().contains("configureLogLevel(com.example.Foo.bar,null)"));
     }
 
+    /**
+     * {@code clear} 命令下发的是<b>空串</b>，必须与 Java null 等价：
+     * 翻译成 Java null 才是"清除"，原样下发空串只是个无效级别。
+     */
+    @Test
+    public void setLoggerLevelWithEmptyStringResetsToInherited() throws Exception {
+        StubSpringBootLoggersEndpoint mutable = defaultStub();
+        replaceWith(mutable);
+
+        ActuatorJmxProvider provider = connect();
+        try {
+            provider.setLoggerLevel("com.example.Foo.bar", "");
+            assertEquals("", provider.getLoggerLevel("com.example.Foo.bar"));
+        } finally {
+            provider.close();
+        }
+        assertTrue(mutable.getInvocations().contains("configureLogLevel(com.example.Foo.bar,null)"));
+    }
+
     /** 全量列表被暴露成 {@code loggers()} 操作而不是 {@code Loggers} 属性时也要能读。 */
     @Test
     public void readsLoggersFromOperationWhenAttributeIsAbsent() throws Exception {

@@ -34,12 +34,15 @@ public class JmxLoggerCliTest {
     }
 
     @Test
-    public void registersGetSetReloadDoctorSubcommands() {
+    public void registersSubcommands() {
         Set<String> names = new CommandLine(new JmxLoggerCli()).getSubcommands().keySet();
         assertTrue(names.contains("get"));
         assertTrue(names.contains("set"));
+        assertTrue(names.contains("clear"));
         assertTrue(names.contains("reload"));
         assertTrue(names.contains("doctor"));
+        // 锁住数量：新增/移除子命令时必须显式改这里，顺带确认 help 顺序与 README 一致
+        assertEquals("子命令清单变了要显式确认，实际: " + names, 5, names.size());
     }
 
     @Test

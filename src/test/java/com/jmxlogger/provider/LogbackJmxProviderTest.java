@@ -101,17 +101,31 @@ public class LogbackJmxProviderTest {
         assertEquals("WARN", stub.getLoggerLevel("com.example.Foo"));
     }
 
+    /**
+     * 空串 / {@code null} 由本 Provider 翻译成字符串 {@code "null"}，<b>不</b>原样下发：
+     * 目标侧 logback 对 Java null 与空串都静默忽略，原样下发的话级别根本不会变。
+     */
     @Test
-    public void setLoggerLevelPassesJavaNullThroughAndTargetIgnoresIt() throws Exception {
+    public void setLoggerLevelWithJavaNullResetsToInherited() throws Exception {
         LogbackJmxProvider provider = connect();
         try {
             provider.setLoggerLevel("com.example.Foo.bar", null);
         } finally {
             provider.close();
         }
-        // 原样下发、不在本地改写：目标侧 logback 首行就 return，级别不变
-        assertTrue(stub.getInvocations().contains("setLoggerLevel(com.example.Foo.bar,null)"));
-        assertEquals("DEBUG", stub.getLoggerLevel("com.example.Foo.bar"));
+        assertEquals("", stub.getLoggerLevel("com.example.Foo.bar"));
+    }
+
+    /** {@code clear} 命令下发的就是空串，必须与 Java null 等价。 */
+    @Test
+    public void setLoggerLevelWithEmptyStringResetsToInherited() throws Exception {
+        LogbackJmxProvider provider = connect();
+        try {
+            provider.setLoggerLevel("com.example.Foo.bar", "");
+        } finally {
+            provider.close();
+        }
+        assertEquals("", stub.getLoggerLevel("com.example.Foo.bar"));
     }
 
     @Test

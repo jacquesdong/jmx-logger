@@ -18,7 +18,9 @@
   属性：`LoggerList`（`java.util.List`，只读，经 RMI 反序列化为 `ArrayList<String>`，实测 783 项）、`Statuses`（只读）；
   操作：`String getLoggerLevel(String)`、`String getLoggerEffectiveLevel(String)`、`void setLoggerLevel(String,String)`、`void reloadDefaultConfiguration()`、`void reloadByFileName(String)`、`void reloadByURL(java.net.URL)`。
 - **级别读取返回空串而非 `null`**：`getLoggerLevel` / `getLoggerEffectiveLevel` 在「logger 不存在」和「logger 未单独配置级别」两种情况下都返回 `""`（源码常量 `JMXConfigurator.EMPTY`）。因此判定"继承"必须判空串，**不能判 `null`**（现有 `GetCommand` 只判 `null`，导致真实输出是空白而非文档所写的 `(inherited)`，已在 P0 修掉）。
-- **`setLoggerLevel` 的 null 语义与直觉相反**：源码开头即 `if (levelStr == null) return;`，传 **Java `null` 被静默忽略**；恢复"继承父 logger"必须传**字符串 `"null"`**（`"null".equalsIgnoreCase(levelStr)` → `logger.setLevel(null)`）；传入无法识别的级别字符串同样静默忽略（`Level.toLevel(x, null) == null`）。⇒ P4 的 `set inherit` 必须下发字符串 `"null"`，且本地要先做级别白名单校验，否则用户会看到"命令成功但级别没变"。
+- **`setLoggerLevel` 的 null 语义与直觉相反**：源码开头即 `if (levelStr == null) return;`，传 **Java `null` 被静默忽略**；恢复"继承父 logger"必须传**字符串 `"null"`**（`"null".equalsIgnoreCase(levelStr)` → `logger.setLevel(null)`）；传入无法识别的级别字符串同样静默忽略（`Level.toLevel(x, null) == null`）。⇒ P4 的 `clear` 命令必须下发字符串 `"null"`（空串与 Java null 都会被目标侧静默忽略），
+且 `set` 侧仍要先做级别白名单校验（空串、`"null"` 一律拒绝并指引 `clear`），
+否则用户会看到"命令成功但级别没变"。
 - **目标进程带 Spring Boot 1.5 actuator，且 JMX 暴露的是 Spring Boot 1.5 命名模型**（不是 Spring Boot 2 的 `name=Loggers`），实测签名：
   ```
   org.springframework.boot:type=Endpoint,name=loggersEndpoint
@@ -97,7 +99,7 @@ flowchart LR
     │                                                #          内部委派给 transport/RemoteJmxConnector 与 provider/LogbackJmxProvider
     ├── command/                                     # 子命令单独成包，与 transport/（怎么连）、provider/（怎么操作）对称
     │   ├── GetCommand.java                          # [MOVED] 改用 LoggerProvider；支持 --json；新增 --no-effective 减少 RMI 往返
-    │   ├── SetCommand.java                          # [MOVED] 白名单之外支持 inherit/null/clear 重置为继承级别
+    │   ├── SetCommand.java                          # [MOVED] 级别白名单严格校验；空串/"null" 一律拒绝并指引 clear
     │   ├── ReloadCommand.java                       # [MOVED] 依据 capabilities 判定，Actuator provider 下输出替代方案
     │   └── DoctorCommand.java                       # [DONE] 连接 → 列出候选 MBean → 打印 MBeanInfo 操作签名 → 给出目标侧应加的配置
     ├── transport/
@@ -150,7 +152,7 @@ flowchart LR
 | P1 | 抽象与诊断 | transport/ + provider/ 骨架、`LogbackJmxProvider` 迁移、`DoctorCommand`、统一退出码 | 对现有 Spring Boot 1.5.6 目标 `get/set/reload` 行为与改造前完全一致；`doctor -s host:port` 能列出候选 MBean 与操作签名 |
 | P2 | 本地 attach | `LocalPidConnector`、`-p/--pid` | 对未开 JMX 端口的本机进程：`get -p <pid>` 成功；容器内/JRE 缺失时给出明确报错而非堆栈 |
 | P3 | ~~Actuator 兜底（**Spring Boot 1.5 + 2.7 双命名**）~~ ✅ | ~~`ActuatorJmxProvider`（`Endpoint,*` 查询后按 `name` 含 logger 过滤，签名与返回值由 MBeanInfo 决定）+ `ProviderFactory` auto~~ | ① 现网 Spring Boot 1.5 目标上 `-t actuator get` 实测 1 次 RMI 列出全部 786 个 logger，与 `-t logback get` 一致 ✅；② `-t auto` 在两条都在时选 logback、缺 logback 时自动切换 ✅（用例覆盖）；③ `reload` 给出替代方案而非崩溃 ✅ |
-| P4 | 打磨 | `--json`、`set inherit`（下发字符串 `"null"`）、`--object-name`、**logger 不存在报错 + 非 0 退出码**、单测、Justfile、README | 单元测通过；`get --json` 可被脚本消费；`get 不存在的名字` 打印"未找到 logger X"且退出码为 3 |
+| P4 | 打磨 | `--json`、`clear` 命令（下发字符串 `"null"` 恢复继承）、`--object-name`、**logger 不存在报错 + 非 0 退出码**、单测、Justfile、README | 单元测通过；`get --json` 可被脚本消费；`get 不存在的名字` 打印"未找到 logger X"且退出码为 3 |
 | P5 | 未来 Spring Boot 3 预留 | 基于已有 Provider 接口扩展 HTTP Provider / 自定义 endpoint 指引 | 文档化差异（JMX 默认仅 `health`、logback ≥1.3 无 JMXConfigurator、`configureLogLevel` 入参类型），不写代码实现 |
 
 ### P4 新增：logger 不存在的处理契约
