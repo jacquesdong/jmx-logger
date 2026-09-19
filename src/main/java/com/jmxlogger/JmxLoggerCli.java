@@ -4,6 +4,8 @@ import com.jmxlogger.command.DoctorCommand;
 import com.jmxlogger.command.GetCommand;
 import com.jmxlogger.command.ReloadCommand;
 import com.jmxlogger.command.SetCommand;
+import com.jmxlogger.support.CommandSupport;
+import com.jmxlogger.support.ExitCodes;
 import com.jmxlogger.transport.RemoteJmxConnector;
 import picocli.CommandLine;
 import picocli.CommandLine.Command;
@@ -13,8 +15,12 @@ import picocli.CommandLine.Option;
  * jmx-logger 顶层命令，持有全局连接参数并注册子命令。
  *
  * <pre>
- * 用法: jmx-logger -s host:port [-u user] [-p pass] <get|set|reload> ...
+ * 用法: jmx-logger -s host:port [-u user] [-p pass] <get|set|reload|doctor> ...
  * </pre>
+ *
+ * <p>错误处理统一走 {@link CommandSupport}：子命令直接抛异常，
+ * 由 {@code main} 装的执行异常处理器映射成 {@link ExitCodes} 里的退出码，
+ * 子命令自身不再 {@code System.exit}。
  */
 @Command(
         name = "jmx-logger",
@@ -44,6 +50,10 @@ public class JmxLoggerCli implements Runnable {
             description = "连接超时（秒），0 表示不限制，默认值为 ${DEFAULT-VALUE}")
     private long timeoutSeconds = JmxClient.DEFAULT_CONNECT_TIMEOUT_MILLIS / 1000L;
 
+    @Option(names = {"-v", "--verbose"},
+            description = "出错时打印完整堆栈（默认只打印一行错误原因）")
+    private boolean verbose;
+
     public String getServer() {
         return server;
     }
@@ -54,6 +64,11 @@ public class JmxLoggerCli implements Runnable {
 
     public String getPassword() {
         return password;
+    }
+
+    /** 是否打印完整堆栈。报错脱敏与 verbose 输出都从顶层命令取，子命令不各存一份。 */
+    public boolean isVerbose() {
+        return verbose;
     }
 
     /**
@@ -92,7 +107,40 @@ public class JmxLoggerCli implements Runnable {
     }
 
     public static void main(String[] args) {
-        int exitCode = new CommandLine(new JmxLoggerCli()).execute(args);
-        System.exit(exitCode);
+        System.exit(commandLine().execute(args));
+    }
+
+    /**
+     * 装上统一错误处理（{@link CommandSupport}）的 {@link CommandLine}。
+     * {@code main} 与测试共用同一份装配，否则 picocli 的默认处理器会把异常直接抛出来，
+     * 测试就断言不到退出码。
+     */
+    public static CommandLine commandLine() {
+        CommandLine commandLine = new CommandLine(new JmxLoggerCli());
+        commandLine.setExecutionExceptionHandler(new CommandLine.IExecutionExceptionHandler() {
+            @Override
+            public int handleExecutionException(Exception ex, CommandLine parsed,
+                                                CommandLine.ParseResult parseResult) {
+                JmxLoggerCli cli = findTopCommand(parsed);
+                CommandSupport.printError(ex,
+                        cli != null && cli.isVerbose(),
+                        cli == null ? null : cli.getPassword());
+                return CommandSupport.exitCodeOf(ex);
+            }
+        });
+        return commandLine;
+    }
+
+    /**
+     * 子命令抛异常时，从被执行的命令沿父命令往上找顶层 {@link JmxLoggerCli}，
+     * 以便取到 {@code --verbose} 与（用于脱敏的）密码。
+     */
+    private static JmxLoggerCli findTopCommand(CommandLine parsed) {
+        for (CommandLine current = parsed; current != null; current = current.getParent()) {
+            if (current.getCommand() instanceof JmxLoggerCli) {
+                return (JmxLoggerCli) current.getCommand();
+            }
+        }
+        return null;
     }
 }

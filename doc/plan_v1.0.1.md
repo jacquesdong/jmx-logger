@@ -91,8 +91,8 @@ flowchart LR
 ├── Justfile                                         # [MODIFY] 补 build / run / doctor / test 目标
 ├── README.md                                        # [NEW] 用法、目标侧配置矩阵、升级到 2.7.18 的兼容性说明
 └── src/main/java/com/jmxlogger/
-    ├── JmxLoggerCli.java                            # [MODIFY] 注册 doctor；新增 --verbose/--timeout/--target/--json 全局选项；
-    │                                                #          用 IExecutionExceptionHandler + ExitCode 统一收口（不再在子命令里 System.exit）
+    ├── JmxLoggerCli.java                            # [MODIFY] 注册 doctor；--timeout/--verbose 已落地，--target/--json 待 P4；
+    │                                                #          用 IExecutionExceptionHandler + ExitCodes 统一收口（子命令不再 System.exit）
     ├── JmxClient.java                               # [MODIFY] 拆分为「连接层」+「Logback 调用」；保留方法名便于逐步迁移，
     │                                                #          内部委派给 transport/RemoteJmxConnector 与 provider/LogbackJmxProvider
     ├── command/                                     # 子命令单独成包，与 transport/（怎么连）、provider/（怎么操作）对称
@@ -113,13 +113,14 @@ flowchart LR
     │   │                                            #      按 MBeanInfo 决定入参与返回值解析（Map / CompositeData / JSON 串）
     │   └── ProviderFactory.java                     # [NEW] auto/logback-jmx/boot-jmx 选择与探测顺序
     ├── support/                                     # 退出码与格式化属支撑层，不混进 command/
-    │   ├── ExitCodes.java / CommandSupport.java     # [NEW] 退出码常量与异常到退出码的映射
+    │   ├── ExitCodes.java / CommandSupport.java     # [DONE] 退出码常量 + 异常到退出码/报错文本的映射
     │   ├── JmxInvocation.java                       # [NEW] 按 MBeanOperationInfo 构造 signature/params（解决 LogLevel 枚举不确定性）
     │   └── OutputFormatter.java                     # [NEW] 表格与 JSON 两种输出
     └── src/test/java/com/jmxlogger/
         ├── ProviderSelectionTest.java               # [NEW] 用平台 MBeanServer 注册桩 MBean 验证 auto 探测顺序
         ├── LogbackJmxProviderTest.java              # [DONE] 验证 list/get/set/重置行为
         ├── RemoteJmxConnectorTest.java              # [DONE] 建连/超时/失败文案
+        ├── CommandSupportTest.java                  # [DONE] 异常→退出码映射、报错形态（一行 vs 堆栈）、密码脱敏
         └── DoctorCommandTest.java                   # [DONE] logback 可用 / 缺失 / 仅 actuator 三种情形
 ```
 
@@ -168,8 +169,8 @@ flowchart LR
 - 只读探测：连接信息（目标/URL/进程/JVM）→ 候选 MBean 清单 → 命中 MBean 的**完整 MBeanInfo** → 结论与目标侧配置建议。
 - **classpath 版本识别**：读 `java.lang:type=Runtime` 的 `ClassPath` 属性，认出 `logback-classic` / `spring-boot-actuator` 版本；logback ≥ 1.3 直接提示 `JMXConfigurator` 已被移除。只读 jar 名，不打印整条 classpath。
 - **Boot 端点双命名探测**：不按版本号分支，而是查 `org.springframework.boot:type=Endpoint,*` 后按 `name` 含 `logger` 过滤，因此 Boot 1.5 的 `name=loggersEndpoint` 与 Boot 2.7 的 `name=Loggers` 都能命中。
-- 报告生成（`diagnose(TargetConnector)`）与打印（`run()`）分离，测试可直接断言报告文本，不必面对 `System.exit`。
-- 退出码沿用现状：连不上为 `1`，诊断完成（即便报告"无可用通道"）为 `0` —— 退出码统一收口是 P1 的下一项（`ExitCodes` + `IExecutionExceptionHandler`），届时一并定稿。
+- 报告生成（`diagnose(TargetConnector)`）与打印（`call()`）分离，测试可直接断言报告文本，不必面对 `System.exit`。
+- 退出码沿用现状：连不上为 `1`，诊断完成（即便报告"无可用通道"）为 `0`。该约定已在 P1 之三（`ExitCodes` + `IExecutionExceptionHandler`）中定稿为正式契约。
 
 真实目标（Boot 1.5.6 + logback 1.1.11，本机 19000）上的实测输出复现并**再次印证**了上文结论，且补充了此前没记全的端点属性：
 
@@ -182,6 +183,20 @@ org.springframework.boot:type=Endpoint,name=loggersEndpoint
 ```
 
 ⇒ P3 编码时以 `doctor` 在本机/升级后环境上的输出为准，不要照抄本文档里的签名。
+
+### 已完成（P1 之三）：统一退出码与 --verbose
+
+- `support/ExitCodes`：`0` 成功、`1` 运行时错误（连不上 / 无可用通道 / JMX 调用失败）、`2` 用法错误（级别非法、参数缺失、未知选项）。
+  P4 的"未找到 logger"会再加 `3`，三个码都已同步进 README。
+- `support/CommandSupport`：`exitCodeOf(Throwable)` 做映射（`ParameterException` 与 `IllegalArgumentException` → 2，其余 → 1），
+  `printError(...)` 负责输出——默认只打一行原因 + 一行"加 --verbose"提示，verbose 才打完整堆栈。
+- 错误处理改为 picocli 的 `IExecutionExceptionHandler`（装在 `JmxLoggerCli#commandLine()`，main 与测试共用同一份装配）；
+  **四个子命令由 `Runnable` 改为 `Callable<Integer>`，不再各自 `System.exit`** —— 副作用是子命令现在可被测试直接执行，
+  `JmxLoggerCliTest` 因此能对"非法级别 / 空 -s / 未知选项 / 连不上 / 成功"五条路径断言退出码，而不必起子进程。
+- `--verbose` 是全局选项（`-v`），顶层命令沿 `CommandLine#getParent()` 向上找到 `JmxLoggerCli` 取 verbose 与密码；
+  密码用于 `redact`：堆栈里若出现明文密码（JMX 认证失败的常见形态）一律替换为 `******`。
+- 对外行为变化仅两处：`set` 的非法级别从"自己打印并 exit(2)"变为抛 `IllegalArgumentException`（码仍是 2、文案不变、仍不建连）；
+  缺少 `-s` 由 1 变 2（本就是用法错误）。其余命令的成功/失败码与改造前一致。
 
 ### 已完成（P0，先于 P1 落地）：连接超时
 

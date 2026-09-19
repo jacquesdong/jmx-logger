@@ -2,6 +2,7 @@ package com.jmxlogger.command;
 
 import com.jmxlogger.JmxClient;
 import com.jmxlogger.JmxLoggerCli;
+import com.jmxlogger.support.ExitCodes;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.Option;
 import picocli.CommandLine.Parameters;
@@ -10,6 +11,7 @@ import picocli.CommandLine.ParentCommand;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
+import java.util.concurrent.Callable;
 
 /**
  * 查看 Logger 级别。
@@ -21,7 +23,7 @@ import java.util.List;
  * </pre>
  */
 @Command(name = "get", description = "查看 Logger 的级别", mixinStandardHelpOptions = true)
-public class GetCommand implements Runnable {
+public class GetCommand implements Callable<Integer> {
 
     @ParentCommand
     private JmxLoggerCli parent;
@@ -32,8 +34,12 @@ public class GetCommand implements Runnable {
     @Option(names = {"-r", "--recursive"}, description = "递归列出该 logger 及其所有子 logger")
     private boolean recursive;
 
+    /**
+     * 异常直接抛给顶层 {@code JmxLoggerCli} 的执行异常处理器，由它统一决定退出码与输出格式；
+     * 本方法不 {@code System.exit}，因此测试可以直接调用。
+     */
     @Override
-    public void run() {
+    public Integer call() throws Exception {
         try (JmxClient client = parent.connect()) {
             if (name == null || name.isEmpty()) {
                 listAll(client);
@@ -42,10 +48,8 @@ public class GetCommand implements Runnable {
             } else {
                 showOne(client, name);
             }
-        } catch (Exception e) {
-            System.err.println("错误: " + e.getMessage());
-            System.exit(1);
         }
+        return ExitCodes.OK;
     }
 
     private void listAll(JmxClient client) throws Exception {

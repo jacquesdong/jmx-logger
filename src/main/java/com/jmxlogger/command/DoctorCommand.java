@@ -1,6 +1,7 @@
 package com.jmxlogger.command;
 
 import com.jmxlogger.JmxLoggerCli;
+import com.jmxlogger.support.ExitCodes;
 import com.jmxlogger.transport.RemoteJmxConnector;
 import com.jmxlogger.transport.TargetConnector;
 import picocli.CommandLine.Command;
@@ -20,6 +21,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.Callable;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -37,7 +39,7 @@ import java.util.regex.Pattern;
 @Command(name = "doctor",
         description = "诊断目标 JVM 的 JMX 连接与可用通道（只读，不改目标状态）",
         mixinStandardHelpOptions = true)
-public class DoctorCommand implements Runnable {
+public class DoctorCommand implements Callable<Integer> {
 
     /** logback JMXConfigurator 的 ObjectName 模式（与 {@code LogbackJmxProvider} 一致）。 */
     private static final String LOGBACK_PATTERN =
@@ -54,25 +56,22 @@ public class DoctorCommand implements Runnable {
     @ParentCommand
     private JmxLoggerCli parent;
 
+    /**
+     * 同 {@code GetCommand}：异常交给顶层处理器，本方法不 {@code System.exit}。
+     * 注意"连不上"与"连上了但报告无可用通道"是两回事：前者抛异常（退出码 1），
+     * 后者诊断成功（退出码 0）——诊断的价值就在于把后者说清楚。
+     */
     @Override
-    public void run() {
-        RemoteJmxConnector connector = null;
-        try {
-            connector = parent.openConnector();
+    public Integer call() throws Exception {
+        try (RemoteJmxConnector connector = parent.openConnector()) {
             System.out.print(diagnose(connector));
-        } catch (Exception e) {
-            System.err.println("错误: " + e.getMessage());
-            System.exit(1);
-        } finally {
-            if (connector != null) {
-                connector.close();
-            }
         }
+        return ExitCodes.OK;
     }
 
     /**
-     * 生成诊断报告。与 {@link #run()} 分开，便于在测试里直接断言报告内容
-     * （不必面对 {@code System.exit}）。
+     * 生成诊断报告。与 {@link #call()} 分开，便于在测试里直接断言报告内容
+     * （不必依赖顶层命令对象）。
      *
      * @throws Exception 读取 MBean 失败；连接本身的失败发生在建连阶段，不在这里
      */

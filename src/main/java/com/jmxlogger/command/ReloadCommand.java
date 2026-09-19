@@ -2,9 +2,12 @@ package com.jmxlogger.command;
 
 import com.jmxlogger.JmxClient;
 import com.jmxlogger.JmxLoggerCli;
+import com.jmxlogger.support.ExitCodes;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.Parameters;
 import picocli.CommandLine.ParentCommand;
+
+import java.util.concurrent.Callable;
 
 /**
  * 重新加载 Logback 配置。
@@ -15,7 +18,7 @@ import picocli.CommandLine.ParentCommand;
  * </pre>
  */
 @Command(name = "reload", description = "重新加载 Logback 配置", mixinStandardHelpOptions = true)
-public class ReloadCommand implements Runnable {
+public class ReloadCommand implements Callable<Integer> {
 
     @ParentCommand
     private JmxLoggerCli parent;
@@ -24,8 +27,9 @@ public class ReloadCommand implements Runnable {
             description = "目标 JVM 上的 logback 配置文件路径（留空则恢复默认配置）")
     private String filePath;
 
+    /** 同 {@code GetCommand}：异常交给顶层处理器，本方法不 {@code System.exit}。 */
     @Override
-    public void run() {
+    public Integer call() throws Exception {
         try (JmxClient client = parent.connect()) {
             if (filePath == null || filePath.isEmpty()) {
                 client.reloadDefaultConfiguration();
@@ -34,9 +38,7 @@ public class ReloadCommand implements Runnable {
                 client.reloadByFileName(filePath);
                 System.out.println("已按文件重新加载配置: " + filePath);
             }
-        } catch (Exception e) {
-            System.err.println("错误: " + e.getMessage());
-            System.exit(1);
         }
+        return ExitCodes.OK;
     }
 }

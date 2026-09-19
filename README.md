@@ -30,7 +30,7 @@ fat jar 内已包含 picocli，拷到任意有 JRE/JDK 的机器上 `java -jar` 
 ## 用法
 
 ```
-用法: jmx-logger [-hV] [-p=<password>] [-s=<server>] [--timeout=秒] [-u=<username>] [COMMAND]
+用法: jmx-logger [-hvV] [-p=<password>] [-s=<server>] [--timeout=秒] [-u=<username>] [COMMAND]
 ```
 
 | 全局选项 | 说明 | 默认 |
@@ -39,6 +39,7 @@ fat jar 内已包含 picocli，拷到任意有 JRE/JDK 的机器上 `java -jar` 
 | `-u, --username` | JMX 用户名（开启认证时） | 空 |
 | `-p, --password` | JMX 密码（开启认证时） | 空 |
 | `--timeout` | 连接超时（秒），`0` 表示不限制 | `10` |
+| `-v, --verbose` | 出错时打印完整堆栈（默认只打一行原因） | 关 |
 | `-h, --help` / `-V, --version` | 帮助 / 版本 | — |
 
 连接串形如 `service:jmx:rmi:///jndi/rmi://<server>/jmxrmi`。
@@ -194,7 +195,17 @@ ch.qos.logback.classic:Name=<contextName>,Type=ch.qos.logback.classic.jmx.JMXCon
 | --- | --- |
 | `0` | 成功 |
 | `1` | 运行时错误（连不上、目标无 JMXConfigurator、JMX 调用失败等） |
-| `2` | 用法错误（非法级别、参数缺失等） |
+| `2` | 用法错误（级别非法、参数缺失、未知选项等） |
+
+错误只打到 stderr，且默认只有一行原因 + 一行提示；加 `-v/--verbose` 才打印完整堆栈，
+栈里的密码会被替换成 `******`。脚本按上表分支即可：
+
+```bash
+java -jar target/jmx-logger.jar -s 10.0.0.5:19000 get || echo "失败，退出码 $?"
+```
+
+> `doctor` 是例外：连不上才返回 `1`；连上了但报告"无可用通道"仍返回 `0`——
+> 诊断的目的就是把这种情形说清楚，它不算失败。
 
 ## 排查
 
@@ -220,12 +231,12 @@ read -s JMX_PASS && java -jar target/jmx-logger.jar -s 10.0.0.5:19000 -u admin -
 
 ## 路线图
 
-按阶段推进，每阶段可独立验收与回滚（详见 `doc/plan_v1.0.1.md`）。**P1 已完成两项**：
-transport/provider 抽象与 `doctor` 诊断子命令；统一退出码与 `--verbose` 待做。
+按阶段推进，每阶段可独立验收与回滚（详见 `doc/plan_v1.0.1.md`）。**P1 已全部完成**：
+transport/provider 抽象、`doctor` 诊断子命令、统一退出码与 `--verbose`。
 
 | 阶段 | 内容 |
 | --- | --- |
-| P1 | ~~抽出 transport/provider 抽象~~ ✅；~~新增 `doctor` 诊断子命令~~ ✅；统一退出码与 `--verbose` |
+| P1 | ~~抽出 transport/provider 抽象~~ ✅；~~新增 `doctor` 诊断子命令~~ ✅；~~统一退出码与 `--verbose`~~ ✅ |
 | P2 | `-P/--pid` 本地 attach（目标未开 JMX 端口时，通过 attach API 动态拉起管理代理，目标侧零配置） |
 | P3 | Spring Boot Actuator 兜底通道（Boot 1.5 `name=loggersEndpoint` / Boot 2.7 `name=Loggers`，签名由 `doctor` 实测驱动），目标无 `<jmxConfigurator/>` 时自动切换 |
 | P4 | `--json` 输出、`set inherit`（重置为继承级别）、`--object-name`（多 LoggerContext） |
@@ -244,3 +255,5 @@ transport/provider 抽象与 `doctor` 诊断子命令；统一退出码与 `--ve
   后续重构（P1 拆分 transport/provider）必须让这些用例原样通过。
 - 测试不 mock JMX，而是在测试 JVM 内起一个**真实的 RMI JMX 连接器**（随机端口），
   注册 `StubLogbackConfigurator` 桩 MBean，覆盖序列化与真实调用链路。
+- 退出码与报错形态由 `CommandSupportTest` 与 `JmxLoggerCliTest` 里的 `execute(...)` 用例锁定
+  （用法错误 2 / 运行时错误 1 / 成功 0）。改退出码要同步 `ExitCodes`、本文档与 `doc/plan_v1.0.1.md`。

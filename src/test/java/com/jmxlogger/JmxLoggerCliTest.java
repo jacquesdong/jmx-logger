@@ -1,8 +1,15 @@
 package com.jmxlogger;
 
+import com.jmxlogger.support.ExitCodes;
+import com.jmxlogger.testing.StubLogbackConfigurator;
+import com.jmxlogger.testing.TestJmxServer;
+import org.junit.After;
 import org.junit.Test;
 import picocli.CommandLine;
 
+import java.io.ByteArrayOutputStream;
+import java.io.PrintStream;
+import java.io.UnsupportedEncodingException;
 import java.util.Set;
 
 import static org.junit.Assert.assertEquals;
@@ -10,10 +17,19 @@ import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
 
 /**
- * CLI 表层契约测试：子命令注册、默认连接参数、以及全局参数能被子命令解析到。
- * 只做解析，不执行 {@code run()}，避免触发子命令里的 {@code System.exit}。
+ * CLI 表层契约测试：子命令注册、默认连接参数、全局参数能被子命令解析到，
+ * 以及各类失败的退出码（子命令已不再 {@code System.exit}，可以放心执行）。
  */
 public class JmxLoggerCliTest {
+
+    private TestJmxServer server;
+
+    @After
+    public void tearDown() {
+        if (server != null) {
+            server.close();
+        }
+    }
 
     @Test
     public void registersGetSetReloadDoctorSubcommands() {
@@ -45,6 +61,48 @@ public class JmxLoggerCliTest {
         assertNotNull(parsedGet);
         // 子命令字段是私有的，用反射读取，避免为了测试在生产代码里开后门
         assertEquals("com.example.Foo", readField(parsedGet.getCommand(), "name"));
+    }
+
+    /**
+     * 退出码是脚本依赖的契约。set 的非法级别、空的 -s 都是"不该连目标就该失败"的用法错误，
+     * 退出码必须是 2；这些用例不建连接，不依赖网络。
+     */
+    @Test
+    public void usageErrorsExitWithCode2() {
+        assertEquals(ExitCodes.USAGE, JmxLoggerCli.commandLine().execute("set", "com.example", "NOPE"));
+        assertEquals(ExitCodes.USAGE, JmxLoggerCli.commandLine().execute("-s", "", "get"));
+        assertEquals(ExitCodes.USAGE, JmxLoggerCli.commandLine().execute("--nope", "get"));
+    }
+
+    /** 连不上目标属于运行时错误（1），而不是用法错误。用必然连不上的地址，快速失败。 */
+    @Test
+    public void connectionFailuresExitWithCode1() {
+        assertEquals(ExitCodes.ERROR,
+                JmxLoggerCli.commandLine().execute("-s", "127.0.0.1:1", "--timeout", "1", "get"));
+    }
+
+    /** 成功路径必须是 0——改退出码体系最容易把成功也改成非零。 */
+    @Test
+    public void successfulCommandsExitWithCode0() throws Exception {
+        server = TestJmxServer.start();
+        StubLogbackConfigurator stub = new StubLogbackConfigurator();
+        stub.put("ROOT", "INFO", "INFO");
+        server.registerLogbackConfigurator(stub, "default");
+
+        assertEquals(ExitCodes.OK, run("-s", server.server(), "get"));
+        assertEquals(ExitCodes.OK, run("-s", server.server(), "doctor"));
+    }
+
+    /** 执行命令时吞掉 stdout：成功路径会打印表格/报告，不该混进测试输出。 */
+    private static int run(String... args) throws Exception {
+        PrintStream original = System.out;
+        ByteArrayOutputStream buffer = new ByteArrayOutputStream();
+        try {
+            System.setOut(new PrintStream(buffer, true, "UTF-8"));
+            return JmxLoggerCli.commandLine().execute(args);
+        } finally {
+            System.setOut(original);
+        }
     }
 
     private static Object readField(Object target, String fieldName) throws Exception {
