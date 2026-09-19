@@ -16,11 +16,12 @@ import static org.junit.Assert.assertTrue;
 public class JmxLoggerCliTest {
 
     @Test
-    public void registersGetSetReloadSubcommands() {
+    public void registersGetSetReloadDoctorSubcommands() {
         Set<String> names = new CommandLine(new JmxLoggerCli()).getSubcommands().keySet();
         assertTrue(names.contains("get"));
         assertTrue(names.contains("set"));
         assertTrue(names.contains("reload"));
+        assertTrue(names.contains("doctor"));
     }
 
     @Test

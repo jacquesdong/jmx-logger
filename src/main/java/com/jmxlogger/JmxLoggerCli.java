@@ -1,5 +1,6 @@
 package com.jmxlogger;
 
+import com.jmxlogger.transport.RemoteJmxConnector;
 import picocli.CommandLine;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.Option;
@@ -19,7 +20,8 @@ import picocli.CommandLine.Option;
         subcommands = {
                 GetCommand.class,
                 SetCommand.class,
-                ReloadCommand.class
+                ReloadCommand.class,
+                DoctorCommand.class
         }
 )
 public class JmxLoggerCli implements Runnable {
@@ -50,12 +52,25 @@ public class JmxLoggerCli implements Runnable {
         return password;
     }
 
+    /**
+     * 建立到目标 JVM 的<b>传输层</b>连接，不解析任何 MBean。
+     * 供 {@code doctor} 这类"先看看目标上有什么"的命令使用——直接建 Provider
+     * 会因为 MBean 不存在而直接报错，就诊断不出原因了。
+     */
+    public RemoteJmxConnector openConnector() throws Exception {
+        return new RemoteJmxConnector(requireServer(), username, password, toMillis(timeoutSeconds));
+    }
+
     /** 建立到目标 JVM 的 JmxClient 连接。 */
     public JmxClient connect() throws Exception {
+        return new JmxClient(requireServer(), username, password, toMillis(timeoutSeconds));
+    }
+
+    private String requireServer() {
         if (server == null || server.isEmpty()) {
             throw new IllegalArgumentException("必须通过 -s/--server 指定目标 JVM 的 JMX 地址 (host:port)");
         }
-        return new JmxClient(server, username, password, toMillis(timeoutSeconds));
+        return server;
     }
 
     /** 秒 → 毫秒，{@code <= 0} 保持为"不限制"，并防止极端取值溢出。 */
