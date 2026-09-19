@@ -35,7 +35,9 @@
     </dependencies>
 
     <build>
-        <!-- <finalName>jmx-logger</finalName> -->
+        <!-- 固定产物名，不带版本号：CLI 工具的 fat jar 独立分发，
+             避免 Justfile / 部署脚本里硬编码 1.0.0 这类会变的值 -->
+        <finalName>jmx-logger</finalName>
         <plugins>
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
