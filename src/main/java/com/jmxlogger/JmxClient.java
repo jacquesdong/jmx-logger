@@ -1,38 +1,29 @@
 package com.jmxlogger;
 
-import javax.management.InstanceNotFoundException;
-import javax.management.MBeanServerConnection;
-import javax.management.ObjectName;
-import javax.management.remote.JMXConnector;
-import javax.management.remote.JMXConnectorFactory;
-import javax.management.remote.JMXServiceURL;
+import com.jmxlogger.provider.LoggerProvider;
+import com.jmxlogger.provider.LogbackJmxProvider;
+import com.jmxlogger.transport.RemoteJmxConnector;
+
 import java.io.IOException;
-import java.util.HashMap;
-import java.util.Map;
-import java.util.Set;
-import java.util.concurrent.Callable;
-import java.util.concurrent.ExecutionException;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
-import java.util.concurrent.Future;
-import java.util.concurrent.ThreadFactory;
-import java.util.concurrent.TimeUnit;
-import java.util.concurrent.TimeoutException;
+import java.util.List;
 
 /**
- * 封装到目标 JVM 的 JMX 连接以及对 Logback JMXConfigurator MBean 的操作调用。
- * 客户端无需引入 Logback 依赖，全部通过 {@link MBeanServerConnection#invoke} 反射式调用。
+ * 到目标 JVM 的 JMX 连接 + Logback 级别操作的一次性门面。
+ *
+ * <p>内部已拆成两层，本类只保留原有方法名与行为，便于上层命令逐步迁移：
+ * <ul>
+ *   <li>{@link RemoteJmxConnector}：传输层，负责"怎么连上"（{@code -s host:port} 的 RMI 连接、超时）；</li>
+ *   <li>{@link LogbackJmxProvider}：Provider 层，负责"连上之后操作哪个 MBean"。 </li>
+ * </ul>
+ * 新代码请直接用这两个类（或 {@link LoggerProvider} 接口），本类在命令层全部迁移完成后会移除。
  */
 public class JmxClient implements AutoCloseable {
 
-    private static final String CONFIGURATOR_TYPE = "ch.qos.logback.classic.jmx.JMXConfigurator";
-
     /** 默认连接超时：10 秒。{@code <= 0} 表示不限制（等同于改造前的行为）。 */
-    public static final long DEFAULT_CONNECT_TIMEOUT_MILLIS = 10_000L;
+    public static final long DEFAULT_CONNECT_TIMEOUT_MILLIS = RemoteJmxConnector.DEFAULT_CONNECT_TIMEOUT_MILLIS;
 
-    private final JMXConnector connector;
-    private final MBeanServerConnection mbsc;
-    private final ObjectName configuratorName;
+    private final RemoteJmxConnector connector;
+    private final LoggerProvider provider;
 
     public JmxClient(String server, String username, String password) throws IOException {
         this(server, username, password, DEFAULT_CONNECT_TIMEOUT_MILLIS);
@@ -43,117 +34,24 @@ public class JmxClient implements AutoCloseable {
      */
     public JmxClient(String server, String username, String password, long connectTimeoutMillis)
             throws IOException {
-        this.connector = connect(server, username, password, connectTimeoutMillis);
-        this.mbsc = connector.getMBeanServerConnection();
-        this.configuratorName = findConfiguratorObjectName();
-    }
-
-    private JMXConnector connect(String server, String username, String password, long timeoutMillis)
-            throws IOException {
-        final String url = "service:jmx:rmi:///jndi/rmi://" + server + "/jmxrmi";
-        final JMXServiceURL serviceURL = new JMXServiceURL(url);
-
-        final Map<String, Object> env = new HashMap<>();
-        if (username != null) {
-            String[] credentials = new String[]{username, password == null ? "" : password};
-            env.put(JMXConnector.CREDENTIALS, credentials);
-        }
-
-        if (timeoutMillis <= 0) {
-            try {
-                return JMXConnectorFactory.connect(serviceURL, env);
-            } catch (IOException e) {
-                throw connectFailed(server, url, e.getMessage(), e);
-            }
-        }
-
-        // RMI 的连接握手（JNDI 查注册表 + 连 RMI 数据端口）本身不可中断、也没有超时参数，
-        // 因此放到守护线程里跑，由 Future 限时；超时后放弃这次连接（线程是 daemon，不阻碍 JVM 退出）。
-        ExecutorService executor = Executors.newSingleThreadExecutor(new ThreadFactory() {
-            @Override
-            public Thread newThread(Runnable r) {
-                Thread t = new Thread(r, "jmx-logger-connect");
-                t.setDaemon(true);
-                return t;
-            }
-        });
+        this.connector = new RemoteJmxConnector(server, username, password, connectTimeoutMillis);
         try {
-            Future<JMXConnector> future = executor.submit(new Callable<JMXConnector>() {
-                @Override
-                public JMXConnector call() throws IOException {
-                    return JMXConnectorFactory.connect(serviceURL, env);
-                }
-            });
-            try {
-                return future.get(timeoutMillis, TimeUnit.MILLISECONDS);
-            } catch (TimeoutException e) {
-                future.cancel(true);
-                throw new IOException("连接 JMX 服务器超时（超过 " + timeoutMillis + " ms）: "
-                        + server + " (" + url + ")\n"
-                        + "常见原因：目标未开 JMX 端口、防火墙拦了 RMI 数据端口、"
-                        + "-Djava.rmi.server.hostname 指向不可达地址、"
-                        + "com.sun.management.jmxremote.rmi.port 与 port 不一致且未放通。\n"
-                        + "可用 --timeout 放宽（0 表示不限）。", e);
-            } catch (ExecutionException e) {
-                Throwable cause = e.getCause();
-                if (cause instanceof IOException) {
-                    throw connectFailed(server, url, cause.getMessage(), cause);
-                }
-                throw connectFailed(server, url, String.valueOf(cause), cause);
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-                throw connectFailed(server, url, "连接被中断", e);
-            }
-        } finally {
-            executor.shutdownNow();
+            this.provider = new LogbackJmxProvider(connector);
+        } catch (IOException | RuntimeException e) {
+            // 构造失败时不会有人调用 close()，这里必须自己收尾，否则 RMI 连接泄漏
+            connector.close();
+            throw e;
         }
     }
 
-    private static IOException connectFailed(String server, String url, String reason, Throwable cause) {
-        return new IOException("无法连接到 JMX 服务器: " + server + " (" + url + "): " + reason, cause);
-    }
-
-    private ObjectName findConfiguratorObjectName() throws IOException {
-        ObjectName pattern;
-        try {
-            pattern = new ObjectName("ch.qos.logback.classic:Type=" + CONFIGURATOR_TYPE + ",*");
-        } catch (Exception e) {
-            throw new IllegalStateException("ObjectName 模式非法", e);
-        }
-
-        Set<ObjectName> names = mbsc.queryNames(pattern, null);
-        if (names.isEmpty()) {
-            throw new IllegalStateException(
-                    "目标 JVM 中未找到 Logback JMXConfigurator MBean。\n" +
-                    "请确认目标应用的 logback.xml 中已启用 <jmxConfigurator/>，并已通过 " +
-                    "-Dcom.sun.management.jmxremote.port 暴露 JMX。");
-        }
-        return names.iterator().next();
-    }
-
-    private Object invoke(String operation, Object[] params, String[] signature) throws Exception {
-        try {
-            return mbsc.invoke(configuratorName, operation, params, signature);
-        } catch (InstanceNotFoundException e) {
-            throw new IllegalStateException(
-                    "Logback JMXConfigurator MBean 不存在，请确认目标应用已启用 <jmxConfigurator/>。", e);
-        }
+    /** 底层 Provider，供逐步迁移期需要能力协商（如 reload）的调用方使用。 */
+    public LoggerProvider provider() {
+        return provider;
     }
 
     public String[] getLoggerList() throws Exception {
-        // Logback 将 logger 列表以 Attribute "LoggerList" (java.util.List) 形式暴露，
-        // 而非 Operation。
-        Object result = mbsc.getAttribute(configuratorName, "LoggerList");
-        if (result instanceof java.util.List) {
-            java.util.List<?> list = (java.util.List<?>) result;
-            String[] arr = new String[list.size()];
-            for (int i = 0; i < list.size(); i++) {
-                Object item = list.get(i);
-                arr[i] = item == null ? null : item.toString();
-            }
-            return arr;
-        }
-        return new String[0];
+        List<String> names = provider.listLoggerNames();
+        return names.toArray(new String[names.size()]);
     }
 
     /**
@@ -164,16 +62,12 @@ public class JmxClient implements AutoCloseable {
      * 而不是 {@code null}；调用方要按空串判断"继承"，不能判 null。
      */
     public String getLoggerLevel(String loggerName) throws Exception {
-        Object result = invoke("getLoggerLevel", new Object[]{loggerName},
-                new String[]{String.class.getName()});
-        return result == null ? null : result.toString();
+        return provider.getLoggerLevel(loggerName);
     }
 
     /** 返回实际生效的级别。 */
     public String getLoggerEffectiveLevel(String loggerName) throws Exception {
-        Object result = invoke("getLoggerEffectiveLevel", new Object[]{loggerName},
-                new String[]{String.class.getName()});
-        return result == null ? null : result.toString();
+        return provider.getLoggerEffectiveLevel(loggerName);
     }
 
     /**
@@ -185,12 +79,11 @@ public class JmxClient implements AutoCloseable {
      * 两种情形都不报错，所以调用方要在本地就把级别校验干净。
      */
     public void setLoggerLevel(String loggerName, String level) throws Exception {
-        invoke("setLoggerLevel", new Object[]{loggerName, level},
-                new String[]{String.class.getName(), String.class.getName()});
+        provider.setLoggerLevel(loggerName, level);
     }
 
     public void reloadDefaultConfiguration() throws Exception {
-        invoke("reloadDefaultConfiguration", new Object[]{}, new String[]{});
+        provider.reloadDefaultConfiguration();
     }
 
     /**
@@ -199,17 +92,11 @@ public class JmxClient implements AutoCloseable {
      * 再自行转 URL），因此这里直接传原始路径，由目标 JVM 解析读取。
      */
     public void reloadByFileName(String filePath) throws Exception {
-        invoke("reloadByFileName", new Object[]{filePath},
-                new String[]{String.class.getName()});
+        provider.reloadByFileName(filePath);
     }
 
     @Override
     public void close() {
-        if (connector != null) {
-            try {
-                connector.close();
-            } catch (IOException ignored) {
-            }
-        }
+        connector.close();
     }
 }
