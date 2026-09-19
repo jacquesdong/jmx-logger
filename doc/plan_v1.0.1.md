@@ -134,7 +134,10 @@ flowchart LR
 - **attach 在 JDK 8 的可行性**：`com.sun.tools.attach.VirtualMachine#startLocalManagementAgent()` 在 JDK 8 中存在，但类在 `tools.jar` 里，不在默认 classpath。实现要用反射 + `URLClassLoader.addURL` 动态把 `${java.home}/../lib/tools.jar` 挂进来；捕获 `ClassNotFound`/`AttachNotSupported` 并给出可操作提示（换 JDK 而非 JRE；同一 OS 用户；`/tmp` 可写；容器需共享 PID namespace）。JDK 9+ 无 `tools.jar`，同一份反射代码天然兼容。
 - **性能（2026-09-19 实测后定论，不要再回到"并发化"方案）**：常用路径是**单 logger 的 `set`/`get`**，其耗时构成是 `java -jar --help` ≈ 287 ms（JVM 启动 + picocli）vs `get ROOT` ≈ 340 ms —— **JMX 只占约 50 ms**（单次 invoke 是 1 ms 级、连接握手约 143 ms 冷启动）。⇒ **并发化 2N 次调用的方案已否决**：对主路径零收益，只会增加复杂度。全量列出（783 个 logger ⇒ 1566 次往返 ≈ 361 ms，端到端 793 ms）是唯一慢路径但属低频，优化留给 P3 的 Actuator 批量读（Boot 1.5 `getLoggers()` 实测 1 次调用 50 ms 拿全量）；Logback Provider 侧无法批量，`--no-effective` 保留为逃生口（默认行为不变）。另外「level 非空就跳过 effective 调用」的设想已实测否决：783 个 logger 里 769 个 level 为空，只能省 14 次调用。
 - **级别语义红线（已实测，写死在代码注释与测试里）**：读取侧"未配置/不存在"是**空串**不是 `null`；写入侧重置继承要传**字符串 `"null"`**，传 Java `null` 或非法级别会被目标静默忽略。任何一层再引入 `null` 语义都要先回来核对本节。
-- **安全**：`--password` 明文密码建议改为环境变量/交互式读取，避免在 ps 输出中泄漏；凭证不进日志。
+- **安全（已实现）**：`--password` 支持三种来源——`--password <明文>`（打印一行 ps 泄漏提示）、
+  `--password` 不带取值（交互式读取，终端下不回显，无控制台时读 stdin 并提示会回显）、
+  环境变量 `JMX_LOGGER_PASSWORD`（脚本/CI 首选）；都没有则不带凭证。
+  明文只在 `PasswordResolver` 与连接器之间传递，报错与 `--verbose` 堆栈里一律被 `redact` 成 `******`。
 - **短选项分配（2026-09-19 定稿）**：`-s`（host:port）与 `-p`（pid）是"指向哪个 JVM"的两个短选项，
   `--username` / `--password` 只有长选项。
 - **错误输出**：禁止打印完整堆栈到标准输出；`--verbose` 才打印堆栈，且过滤掉认证信息。

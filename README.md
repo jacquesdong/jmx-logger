@@ -30,7 +30,8 @@ fat jar 内已包含 picocli，拷到任意有 JRE/JDK 的机器上 `java -jar` 
 ## 用法
 
 ```
-用法: jmx-logger [-hvV] [-p=pid] [-s=<server>] [--timeout=秒] [--username=<username>] [COMMAND]
+用法: jmx-logger [-hvV] [--password[=密码]] [-p=pid] [-s=<server>] [--timeout=秒]
+      [--username=<username>] [COMMAND]
 ```
 
 | 全局选项 | 说明 | 默认 |
@@ -38,7 +39,7 @@ fat jar 内已包含 picocli，拷到任意有 JRE/JDK 的机器上 `java -jar` 
 | `-s, --server` | 目标 JVM 的 JMX 地址 `host:port`（远程 RMI 通道） | `127.0.0.1:19000` |
 | `-p, --pid` | 目标 JVM 的进程号（本地 attach 通道）；指定后**优先于** `-s` | 空 |
 | `--username` | JMX 用户名（开启认证时） | 空 |
-| `--password` | JMX 密码（开启认证时） | 空 |
+| `--password` | JMX 密码（开启认证时）。不带取值时交互式读取；省略时读环境变量 `JMX_LOGGER_PASSWORD` | 空 |
 | `--timeout` | 连接超时（秒），`0` 表示不限制 | `10` |
 | `-v, --verbose` | 出错时打印完整堆栈（默认只打一行原因） | 关 |
 | `-h, --help` / `-V, --version` | 帮助 / 版本与构建信息（`git describe` + 提交时间，取不到时为版本号） | — |
@@ -203,6 +204,7 @@ ch.qos.logback.classic:Name=<contextName>,Type=ch.qos.logback.classic.jmx.JMXCon
 | `authenticate` | 生产环境建议 `true`，并配合 `jmxremote.access` / `jmxremote.password` |
 
 > 未开启认证时不要传 `--username`/`--password`，反之亦然。
+> 密码建议走环境变量或交互式读取，`--password <明文>` 会出现在 `ps` 里（详见"安全建议"）。
 
 ## 兼容性
 
@@ -250,7 +252,7 @@ java -jar target/jmx-logger.jar -s 10.0.0.5:19000 get || echo "失败，退出�
 | `未找到 Logback JMXConfigurator MBean` | 目标 `logback.xml` 缺 `<jmxConfigurator/>`，或该 JVM 用的不是 Logback |
 | 连上后很快断开 / 卡住 | 未设 `java.rmi.server.hostname`，或 `rmi.port` 与 `port` 不一致 |
 | `set` 后级别没变 | 确认改的是正确的 logger 名；子 logger 会覆盖父 logger；`reload` 会重置为配置文件中的值 |
-| 认证失败 | 检查 `jmxremote.password` 文件权限必须为 `600`，且 `--username`/`--password` 与目标配置一致 |
+| 认证失败 | 检查 `jmxremote.password` 文件权限必须为 `600`，且 `--username`/密码与目标配置一致；密码来源优先级见"安全建议"（环境变量没生效时通常是漏了 `--username`） |
 | `非法的 PID "..."` | `-p` 只接受正整数进程号，用 `jps -l` 确认 PID |
 | `无法 attach 到本地进程 <pid>` | 按报错里的 5 条排查清单逐项核对：PID 是否存在、是否同用户、是否用 JDK 运行、`/tmp` 是否可写、容器是否同一 PID namespace |
 | `attach ... 需要 com.sun.tools.attach.VirtualMachine` | 用 **JRE** 跑了 jmx-logger（缺 `tools.jar`）：换成完整 JDK，或改用 `-s host:port` |
@@ -258,13 +260,28 @@ java -jar target/jmx-logger.jar -s 10.0.0.5:19000 get || echo "失败，退出�
 
 ## 安全建议
 
-`--password` 明文密码会出现在 `ps` 输出里。当前版本只支持命令行传密码，建议用交互式读取绕开：
+`--password <明文>` 会出现在 `ps` 输出里（同机任何用户都能看到）。优先用下面两种方式，按"越靠前越推荐"：
 
 ```bash
-read -s JMX_PASS && java -jar target/jmx-logger.jar -s 10.0.0.5:19000 --username admin --password "$JMX_PASS" get
+# 1) 环境变量（脚本/CI 首选）：不进命令行，也不进 ps
+export JMX_LOGGER_PASSWORD='...'
+java -jar target/jmx-logger.jar -s 10.0.0.5:19000 --username admin get
+
+# 2) 交互式：--password 不带取值，从终端读取且终端下不回显
+java -jar target/jmx-logger.jar -s 10.0.0.5:19000 --username admin --password get
+
+# 3) 兼容但会泄漏：命令行明文（此时工具会打印一行提示到 stderr）
+java -jar target/jmx-logger.jar -s 10.0.0.5:19000 --username admin --password '...' get
 ```
 
-支持环境变量/凭证文件读取已列入路线图。
+取值优先级：`--password <明文>` → `--password`（不带取值，交互式）→ 环境变量 `JMX_LOGGER_PASSWORD` →
+无密码（不带凭证连接）。要点：
+
+- `--username` 为空时密码不会生效（JMX 只在给了用户名的情况下带凭证）。
+- 交互式在**无控制台**（stdin 被重定向、CI）时退回读 stdin 一行并提示"输入会回显"；
+  读到空输入直接报错退出（退出码 `2`），不会拿空密码去连。
+- 密码不进日志：`-v/--verbose` 的堆栈与报错里出现的密码会被替换成 `******`。
+- 环境变量设为空串等同于没设。
 
 ## 路线图
 

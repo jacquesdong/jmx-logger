@@ -6,6 +6,7 @@ import com.jmxlogger.command.ReloadCommand;
 import com.jmxlogger.command.SetCommand;
 import com.jmxlogger.support.CommandSupport;
 import com.jmxlogger.support.ExitCodes;
+import com.jmxlogger.support.PasswordResolver;
 import com.jmxlogger.support.VersionProvider;
 import com.jmxlogger.transport.LocalPidConnector;
 import com.jmxlogger.transport.RemoteJmxConnector;
@@ -19,7 +20,7 @@ import picocli.CommandLine.Option;
  *
  * <pre>
  * <pre>
- * 用法: jmx-logger -s host:port [-u user] [-p pass] <get|set|reload|doctor> ...
+ * 用法: jmx-logger -s host:port [--username user] [--password ...] <get|set|reload|doctor> ...
  * 用法: jmx-logger -p pid <get|set|reload|doctor> ...          （本地 attach，目标侧无需开端口）
  * </pre>
  *
@@ -49,13 +50,25 @@ public class JmxLoggerCli implements Runnable {
     @Option(names = {"--username"}, description = "JMX 用户名（可选）")
     private String username;
 
-    @Option(names = {"--password"}, description = "JMX 密码（可选）")
+    /**
+     * JMX 密码。三种给法（详见 {@link PasswordResolver}）：
+     * {@code --password <明文>}（会出现在 ps 输出里）、{@code --password} 不带取值（交互式读取）、
+     * 完全省略时回退到环境变量 {@value PasswordResolver#ENV_PASSWORD}。
+     */
+    @Option(names = {"--password"}, paramLabel = "密码", arity = "0..1",
+            fallbackValue = PasswordResolver.INTERACTIVE,
+            description = "JMX 密码（可选）。不带取值时交互式读取（不回显）；"
+                    + "完全省略时回退到环境变量 " + PasswordResolver.ENV_PASSWORD)
     private String password;
 
     @Option(names = {"-p", "--pid"}, paramLabel = "pid",
             description = "目标 JVM 的进程号：本地 attach 并现场启动管理代理，"
                     + "目标侧无需预先开 JMX 端口；指定后优先于 -s")
     private Long pid;
+
+    private PasswordResolver passwordResolver = PasswordResolver.system();
+    private String resolvedPassword;
+    private boolean passwordResolved;
 
     @Option(names = {"--timeout"}, paramLabel = "秒",
             description = "连接超时（秒），0 表示不限制，默认值为 ${DEFAULT-VALUE}")
@@ -73,8 +86,36 @@ public class JmxLoggerCli implements Runnable {
         return username;
     }
 
+    /** {@code --password} 的原始取值（可能是"交互式读取"标记），解析请用 {@link #resolvePassword()}。 */
     public String getPassword() {
         return password;
+    }
+
+    /**
+     * 解析出真正用于连接的密码：显式明文 → 交互式读取 → 环境变量 {@value PasswordResolver#ENV_PASSWORD}；
+     * 都没有时返回 null（不带凭证连接）。结果只解析一次，连接与报错脱敏共用。
+     */
+    public String resolvePassword() {
+        if (!passwordResolved) {
+            if (PasswordResolver.isLiteral(password)) {
+                System.err.println("提示: 密码来自命令行参数，会出现在 ps 输出里；"
+                        + "建议改用环境变量 " + PasswordResolver.ENV_PASSWORD
+                        + "，或 --password 不带取值交互式读取。");
+            }
+            resolvedPassword = passwordResolver.resolve(password);
+            passwordResolved = true;
+        }
+        return resolvedPassword;
+    }
+
+    /** 已解析的密码，不触发交互式读取；仅供报错脱敏使用。 */
+    public String peekPassword() {
+        return resolvedPassword;
+    }
+
+    /** 测试注入用：替换密码来源（环境变量与读取方式）。 */
+    void setPasswordResolver(PasswordResolver passwordResolver) {
+        this.passwordResolver = passwordResolver;
     }
 
     /** 本地 attach 的目标进程号；未指定时为 null（此时按 -s 走 RMI）。 */
@@ -96,10 +137,11 @@ public class JmxLoggerCli implements Runnable {
      * {@code -p} 优先：用户既然显式指定了进程，就不该再要求目标开端口。
      */
     public TargetConnector openConnector() throws Exception {
+        String secret = resolvePassword();
         if (pid != null) {
-            return new LocalPidConnector(String.valueOf(pid), username, password, toMillis(timeoutSeconds));
+            return new LocalPidConnector(String.valueOf(pid), username, secret, toMillis(timeoutSeconds));
         }
-        return new RemoteJmxConnector(requireServer(), username, password, toMillis(timeoutSeconds));
+        return new RemoteJmxConnector(requireServer(), username, secret, toMillis(timeoutSeconds));
     }
 
     /** 建立到目标 JVM 的 JmxClient 连接（传输层由 {@link #openConnector()} 决定）。 */
@@ -146,7 +188,7 @@ public class JmxLoggerCli implements Runnable {
                 JmxLoggerCli cli = findTopCommand(parsed);
                 CommandSupport.printError(ex,
                         cli != null && cli.isVerbose(),
-                        cli == null ? null : cli.getPassword());
+                        cli == null ? null : cli.peekPassword());
                 return CommandSupport.exitCodeOf(ex);
             }
         });

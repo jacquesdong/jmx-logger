@@ -1,6 +1,7 @@
 package com.jmxlogger;
 
 import com.jmxlogger.support.ExitCodes;
+import com.jmxlogger.support.PasswordResolver;
 import com.jmxlogger.testing.CliRunner;
 import com.jmxlogger.testing.StubLogbackConfigurator;
 import com.jmxlogger.testing.TestJmxServer;
@@ -8,6 +9,8 @@ import org.junit.After;
 import org.junit.Test;
 import picocli.CommandLine;
 
+import java.util.HashMap;
+import java.util.Map;
 import java.util.Set;
 
 import static org.junit.Assert.assertEquals;
@@ -63,6 +66,37 @@ public class JmxLoggerCliTest {
         assertNotNull(parsedGet);
         // 子命令字段是私有的，用反射读取，避免为了测试在生产代码里开后门
         assertEquals("com.example.Foo", readField(parsedGet.getCommand(), "name"));
+    }
+
+    /**
+     * {@code --password} 不带取值表示"交互式读取"，用 arity=0..1 实现；
+     * 必须确认它不会把后面的子命令名当成密码吞掉。
+     */
+    @Test
+    public void passwordWithoutValueDoesNotSwallowSubcommand() {
+        CommandLine cmd = new CommandLine(new JmxLoggerCli());
+        cmd.parseArgs("-s", "10.0.0.5:19000", "--password", "get");
+
+        assertEquals(PasswordResolver.INTERACTIVE, ((JmxLoggerCli) cmd.getCommand()).getPassword());
+        assertNotNull(cmd.getSubcommands().get("get"));
+    }
+
+    /** 命令行不写明文时，密码从环境变量来（脚本/CI 不把密码暴露在 ps 里）。 */
+    @Test
+    public void resolvesPasswordFromEnvironmentWhenOptionAbsent() {
+        Map<String, String> env = new HashMap<String, String>();
+        env.put(PasswordResolver.ENV_PASSWORD, "fromEnv");
+        JmxLoggerCli cli = new JmxLoggerCli();
+        cli.setPasswordResolver(new PasswordResolver(env, new PasswordResolver.Reader() {
+            @Override
+            public String read(String prompt) {
+                throw new AssertionError("没有 --password 时不应交互式读取");
+            }
+        }));
+
+        assertEquals("fromEnv", cli.resolvePassword());
+        // 脱敏用的是同一个已解析值
+        assertEquals("fromEnv", cli.peekPassword());
     }
 
     /**
