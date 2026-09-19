@@ -76,7 +76,7 @@ jmx-logger/
 - **安全性**：密码以命令行明文传递，仅建议在可信环境使用。
 
 ## 验证
-- `mvn package` 构建成功，生成可执行 jar。
+- `./mvnw package` 构建成功，生成可执行 jar。
 - 用一个内嵌 Logback + `<jmxConfigurator/>` 的简单测试应用启动（带 JMX 远程端口），验证：
   - `jmx-logger get` 列出 logger 与级别。
   - `jmx-logger get <name>` 正确显示 configured/effective level。
