@@ -1,4 +1,4 @@
-package com.jmxlogger;
+package com.jmxlogger.command;
 
 import com.jmxlogger.testing.StubBootEndpoint;
 import com.jmxlogger.testing.StubLogbackConfigurator;

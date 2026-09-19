@@ -1,5 +1,7 @@
-package com.jmxlogger;
+package com.jmxlogger.command;
 
+import com.jmxlogger.JmxClient;
+import com.jmxlogger.JmxLoggerCli;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.Parameters;
 import picocli.CommandLine.ParentCommand;

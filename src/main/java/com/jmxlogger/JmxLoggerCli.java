@@ -1,5 +1,9 @@
 package com.jmxlogger;
 
+import com.jmxlogger.command.DoctorCommand;
+import com.jmxlogger.command.GetCommand;
+import com.jmxlogger.command.ReloadCommand;
+import com.jmxlogger.command.SetCommand;
 import com.jmxlogger.transport.RemoteJmxConnector;
 import picocli.CommandLine;
 import picocli.CommandLine.Command;

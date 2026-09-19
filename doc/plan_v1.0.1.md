@@ -95,11 +95,11 @@ flowchart LR
     │                                                #          用 IExecutionExceptionHandler + ExitCode 统一收口（不再在子命令里 System.exit）
     ├── JmxClient.java                               # [MODIFY] 拆分为「连接层」+「Logback 调用」；保留方法名便于逐步迁移，
     │                                                #          内部委派给 transport/RemoteJmxConnector 与 provider/LogbackJmxProvider
-    ├── GetCommand.java                              # [MODIFY] 改用 LoggerProvider；支持 --json；新增 --no-effective 减少 RMI 往返
-    ├── SetCommand.java                              # [MODIFY] 白名单之外支持 inherit/null/clear 重置为继承级别
-    ├── ReloadCommand.java                           # [MODIFY] 依据 capabilities 判定，Actuator provider 下输出替代方案
-    ├── DoctorCommand.java                           # [NEW] 连接 → 列出候选 MBean → 打印 MBeanInfo 操作签名 → 给出目标侧应加的配置
-    ├── ExitCodes.java / CommandSupport.java         # [NEW] 退出码常量与异常到退出码的映射
+    ├── command/                                     # 子命令单独成包，与 transport/（怎么连）、provider/（怎么操作）对称
+    │   ├── GetCommand.java                          # [MOVED] 改用 LoggerProvider；支持 --json；新增 --no-effective 减少 RMI 往返
+    │   ├── SetCommand.java                          # [MOVED] 白名单之外支持 inherit/null/clear 重置为继承级别
+    │   ├── ReloadCommand.java                       # [MOVED] 依据 capabilities 判定，Actuator provider 下输出替代方案
+    │   └── DoctorCommand.java                       # [DONE] 连接 → 列出候选 MBean → 打印 MBeanInfo 操作签名 → 给出目标侧应加的配置
     ├── transport/
     │   ├── TargetConnector.java                     # [NEW] AutoCloseable，暴露 getMBeanServerConnection()
     │   ├── RemoteJmxConnector.java                  # [NEW] 现有 host:port RMI 逻辑迁移（service:jmx:rmi:///jndi/rmi://...）
@@ -112,7 +112,8 @@ flowchart LR
     │   ├── BootActuatorJmxProvider.java             # [NEW] 双命名探测（Boot1.5 loggersEndpoint / Boot2.7 Loggers），
     │   │                                            #      按 MBeanInfo 决定入参与返回值解析（Map / CompositeData / JSON 串）
     │   └── ProviderFactory.java                     # [NEW] auto/logback-jmx/boot-jmx 选择与探测顺序
-    ├── support/
+    ├── support/                                     # 退出码与格式化属支撑层，不混进 command/
+    │   ├── ExitCodes.java / CommandSupport.java     # [NEW] 退出码常量与异常到退出码的映射
     │   ├── JmxInvocation.java                       # [NEW] 按 MBeanOperationInfo 构造 signature/params（解决 LogLevel 枚举不确定性）
     │   └── OutputFormatter.java                     # [NEW] 表格与 JSON 两种输出
     └── src/test/java/com/jmxlogger/
