@@ -29,9 +29,31 @@ fat jar 内已包含 picocli，拷到任意有 JRE/JDK 的机器上 `java -jar` 
 
 ## 用法
 
-```
-用法: jmx-logger [-hvV] [--password[=密码]] [-p=pid] [-s=<server>] [-t=通道]
-      [--timeout=秒] [--username=<username>] [COMMAND]
+下面就是 `jmx-logger --help` 的实际输出（选项按"连接 → 认证 → 通道 → 输出"排列，
+不是字母序）。改了 `--help` 的形态记得同步这里：
+
+```text
+Usage: jmx-logger [OPTIONS] [COMMAND]
+通过 JMX 远程管理 Logback 的 Logger 级别与配置重载。
+  -s, --server=<server>     目标 JVM 的 JMX 地址，默认值为 127.0.0.1:19000
+      --username=<username> JMX 用户名（可选）
+      --password[=<password>]
+                            JMX 密码（可选）。不带取值时交互式读取（不回显）；完
+                              全省略时回退到环境变量 JMX_LOGGER_PASSWORD
+  -p, --pid=<pid>           目标 JVM 的进程号：本地 attach 并现场启动管理代理，
+                              目标侧无需预先开 JMX 端口；指定后优先于 -s
+  -t, --target=<target>     日志通道: auto（先 logback，缺失时兜底 actuator）/
+                              logback / actuator，默认值为 auto
+      --timeout=<seconds>   连接超时（秒），0 表示不限制，默认值为 10
+  -v, --verbose             出错时打印完整堆栈（默认只打印一行错误原因）
+  -h, --help                Show this help message and exit.
+  -V, --version             Print version information and exit.
+Commands:
+  get     查看 Logger 的级别
+  set     设置 Logger 的级别
+  clear   清除 Logger 自身配置的级别，恢复继承父 logger
+  reload  重新加载 Logback 配置
+  doctor  诊断目标 JVM 的 JMX 连接与可用通道（只读，不改目标状态）
 ```
 
 | 全局选项 | 说明 | 默认 |
