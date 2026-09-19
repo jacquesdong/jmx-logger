@@ -10,7 +10,6 @@ import java.io.IOException;
 import java.util.Arrays;
 
 import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
@@ -54,12 +53,14 @@ public class JmxClientTest {
     }
 
     @Test
-    public void getLoggerLevelReturnsConfiguredLevelOrNullWhenInherited() throws Exception {
+    public void getLoggerLevelReturnsConfiguredLevelOrEmptyWhenInherited() throws Exception {
         JmxClient client = new JmxClient(server.server(), null, null);
         try {
             assertEquals("DEBUG", client.getLoggerLevel("com.example.Foo.bar"));
-            // 未单独配置时 logback 返回 null，GetCommand 据此显示 (inherited)
-            assertNull(client.getLoggerLevel("com.example.Foo"));
+            // 真实 logback 对「未配置级别」与「logger 不存在」都返回空串（JMXConfigurator.EMPTY），
+            // 而不是 null —— 已在真实目标进程（logback 1.1.x/1.2.x）上核对过。
+            assertEquals("", client.getLoggerLevel("com.example.Foo"));
+            assertEquals("", client.getLoggerLevel("no.such.logger"));
         } finally {
             client.close();
         }
@@ -89,14 +90,40 @@ public class JmxClientTest {
     }
 
     @Test
-    public void setLoggerLevelWithNullResetsToInherited() throws Exception {
+    public void setLoggerLevelWithJavaNullIsSilentlyIgnoredByTarget() throws Exception {
         JmxClient client = new JmxClient(server.server(), null, null);
         try {
             client.setLoggerLevel("com.example.Foo.bar", null);
         } finally {
             client.close();
         }
-        assertNull(stub.getLoggerLevel("com.example.Foo.bar"));
+        // logback 的 setLoggerLevel 首行就是 `if (levelStr == null) return;`，
+        // 所以传 Java null 不会重置级别，只是白跑一趟。
+        assertTrue(stub.getInvocations().contains("setLoggerLevel(com.example.Foo.bar,null)"));
+        assertEquals("DEBUG", stub.getLoggerLevel("com.example.Foo.bar"));
+    }
+
+    @Test
+    public void setLoggerLevelWithNullStringResetsToInherited() throws Exception {
+        JmxClient client = new JmxClient(server.server(), null, null);
+        try {
+            // 字符串 "null" 才是 logback 认可的「恢复继承」指令
+            client.setLoggerLevel("com.example.Foo.bar", "null");
+        } finally {
+            client.close();
+        }
+        assertEquals("", stub.getLoggerLevel("com.example.Foo.bar"));
+    }
+
+    @Test
+    public void setLoggerLevelWithUnknownLevelIsIgnored() throws Exception {
+        JmxClient client = new JmxClient(server.server(), null, null);
+        try {
+            client.setLoggerLevel("com.example.Foo.bar", "BOGUS");
+        } finally {
+            client.close();
+        }
+        assertEquals("DEBUG", stub.getLoggerLevel("com.example.Foo.bar"));
     }
 
     @Test

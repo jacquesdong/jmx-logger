@@ -89,7 +89,13 @@ public class JmxClient implements AutoCloseable {
         return new String[0];
     }
 
-    /** 返回配置的级别（可能为 null，表示继承父 logger）。 */
+    /**
+     * 返回配置的级别。
+     *
+     * <p>真实 logback（1.1.x / 1.2.x）的 {@code JMXConfigurator#getLoggerLevel} 在
+     * 「该 logger 未单独配置级别」和「logger 不存在」两种情况下都返回<b>空串</b>，
+     * 而不是 {@code null}；调用方要按空串判断"继承"，不能判 null。
+     */
     public String getLoggerLevel(String loggerName) throws Exception {
         Object result = invoke("getLoggerLevel", new Object[]{loggerName},
                 new String[]{String.class.getName()});
@@ -103,6 +109,14 @@ public class JmxClient implements AutoCloseable {
         return result == null ? null : result.toString();
     }
 
+    /**
+     * 设置 logger 级别。
+     *
+     * <p>目标侧 logback 的 {@code setLoggerLevel} 有特殊约定：{@code level} 传
+     * <b>Java null 会被静默忽略</b>（源码首行 {@code if (levelStr == null) return;}），
+     * 想恢复"继承父 logger"必须传<b>字符串 {@code "null"}</b>；传了无法识别的级别同样静默忽略。
+     * 两种情形都不报错，所以调用方要在本地就把级别校验干净。
+     */
     public void setLoggerLevel(String loggerName, String level) throws Exception {
         invoke("setLoggerLevel", new Object[]{loggerName, level},
                 new String[]{String.class.getName(), String.class.getName()});

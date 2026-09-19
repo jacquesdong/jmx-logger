@@ -97,7 +97,8 @@ public class GetCommand implements Runnable {
     private void printRow(String logger, String level, String effective) {
         System.out.printf("%-50s %-10s %-10s%n",
                 logger,
-                level == null ? "(inherited)" : level,
+                // 真实 logback 对「未配置级别 / logger 不存在」返回空串而非 null，空串同样按继承显示
+                level == null || level.isEmpty() ? "(inherited)" : level,
                 effective == null ? "" : effective);
     }
 }
