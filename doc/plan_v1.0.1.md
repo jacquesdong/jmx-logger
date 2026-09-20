@@ -158,7 +158,7 @@ flowchart LR
 | P2 | 本地 attach | `LocalPidConnector`、`-p/--pid` | 对未开 JMX 端口的本机进程：`get -p <pid>` 成功；容器内/JRE 缺失时给出明确报错而非堆栈 |
 | P3 | ~~Actuator 兜底（**Spring Boot 1.5 + 2.7 双命名**）~~ ✅ | ~~`ActuatorJmxProvider`（`Endpoint,*` 查询后按 `name` 含 logger 过滤，签名与返回值由 MBeanInfo 决定）+ `ProviderFactory` auto~~ | ① 现网 Spring Boot 1.5 目标上 `-t actuator get` 实测 1 次 RMI 列出全部 786 个 logger，与 `-t logback get` 一致 ✅；② `-t auto` 在两条都在时选 logback、缺 logback 时自动切换 ✅（用例覆盖）；③ `reload` 给出替代方案而非崩溃 ✅ |
 | P4 | 打磨 | `--json`、`clear` 命令（下发字符串 `"null"` 恢复继承）、`--object-name`、**logger 不存在报错 + 非 0 退出码**、单测、Justfile、README | 单元测通过；`get --json` 可被脚本消费；`get 不存在的名字` 打印"未找到 logger X"且退出码为 3 |
-| P5 | 未来 Spring Boot 3 预留 | 基于已有 Provider 接口扩展 HTTP Provider / 自定义 endpoint 指引 | 文档化差异（JMX 默认仅 `health`、logback ≥1.3 无 JMXConfigurator、`configureLogLevel` 入参类型），不写代码实现 |
+| P5 | ~~未来 Spring Boot 3 预留~~ ❌ **已放弃** | 基于已有 Provider 接口扩展 HTTP Provider / 自定义 endpoint 指引 | 现有目标栈只到 Spring Boot 2.7.18；真要支持时按真实签名实现 HTTP provider，不做提前预留 |
 
 ### P4 新增：logger 不存在的处理契约
 
@@ -298,7 +298,7 @@ OP   setLogLevel(String, String) → void
 - P1：重构期间最容易回归的是 `ObjectName` 拼接与 `invoke` 签名，必须保留现有常量与原样调用路径。
 - P2：attach 受限于 OS 权限、JRE（无 tools.jar）、容器 PID namespace；失败分支必须先于功能分支实现。
 - P3：~~Actuator 操作签名与返回值形态存在版本差异，先探测后编码、禁止猜测~~ —— **Spring Boot 1.5 已在真实目标上实测**（`Loggers` 属性/`getLoggers()` 返回 `LinkedHashMap{levels, loggers={名字→{configuredLevel, effectiveLevel}}}`、`getLogger(String)`、`setLogLevel(String,String)`），实现按 `MBeanInfo` 适配、两套命名都认，已留档于上文"已完成（P3）"。
-  **Spring Boot 2.7 仍未经真实进程验证**（本机只有 1.5 目标）：由于签名是运行时读取而非写死，2.7 上最多是解析层需补一种形态，不会出现"整条通道不可用"的静默失败——升级后请跑一次 `doctor` 与 `-t actuator get` 复核。
+  **Spring Boot 2.7 已在真实进程上验证**（见 `tools/e2e/verify.sh 2.7.18`）：实测签名 `configureLogLevel(java.lang.String, java.lang.String)`、`loggers()` / `loggerLevels(String)` 返回 `java.util.Map`，无需任何类型转换兜底。前提是目标必须设 `spring.jmx.enabled=true`（**Spring Boot 2.2 起 JMX 默认关闭**），否则端点根本不会注册到 JMX。
 - P4：`--json` 输出与退出码一旦发布即成为契约，字段名与码值需一次定稿；新增的退出码 `3` 要同时同步到 `ExitCodes`、`README` 与本文档。
-- P5：Spring Boot 3.x 的 JMX 默认只暴露 `health`、logback ≥1.3 已无 `JMXConfigurator`，届时只剩 HTTP/自定义 endpoint 一条路；本阶段只出文档，不写代码。
+- P5（**已放弃**）：Spring Boot 3.x 的 JMX 默认只暴露 `health`、logback ≥1.3 已无 `JMXConfigurator`，届时只剩 HTTP/自定义 endpoint 一条路；但现有目标栈不涉及 3.x，决定不提前预留、也不写文档，真需要时按当时的真实签名实现。
   （**注**：原计划"Spring Boot 1.5 actuator 属旧命名模型、不在支持范围"一条已作废——Spring Boot 1.5 端点已在真实进程上实测可用，且是现网唯一可行的兜底通道，已并入 P3。）

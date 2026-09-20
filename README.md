@@ -391,7 +391,7 @@ ch.qos.logback.classic:Name=<contextName>,Type=ch.qos.logback.classic.jmx.JMXCon
 | --- | --- | --- | --- |
 | Spring Boot 1.5.6 / 1.5.20（JDK 8） | 1.1.x | 有 | 支持（实测） |
 | Spring Boot 2.7.18（JDK 8+） | 1.2.12 | 有 | logback 通道无需改动；actuator 通道需 `spring.jmx.enabled=true`（已实测） |
-| Spring Boot 3.x（JDK 17+） | 1.4.x+ | **已移除** | 暂不支持 |
+| Spring Boot 3.x（JDK 17+） | 1.4.x+ | **已移除** | 不支持：本工具只用 JMX，不做 HTTP 通道（见"路线图"） |
 
 关键点：
 
@@ -400,7 +400,8 @@ ch.qos.logback.classic:Name=<contextName>,Type=ch.qos.logback.classic.jmx.JMXCon
   （`LoggerList` 属性、`getLoggerLevel`、`getLoggerEffectiveLevel`、`setLoggerLevel`、
   `reloadDefaultConfiguration`、`reloadByFileName`），因此同一份客户端在两个版本上通用。
 - **Logback ≥ 1.3 起彻底移除了 JMXConfigurator**（Spring Boot 3.x 自带 1.4.x），届时本工具当前的实现路径失效。
-  应对方案见下方"路线图"（Actuator / HTTP 通道）。
+  本工具**不做 HTTP 通道**（见"路线图"的 P5）：真要在 3.x 上改级别，用 actuator 的 HTTP 端点
+  （`GET/POST /actuator/loggers`）配合 curl 即可。
 - 工具自身编译目标保持 Java 8，Spring Boot 2.7.18 同样要求 Java 8，无需调整。
 
 ## 退出码
@@ -469,7 +470,7 @@ java -jar target/jmx-logger.jar -s 10.0.0.5:19000 --username admin --password '.
 
 ## 路线图
 
-按阶段推进，每阶段可独立验收与回滚（详见 `doc/plan_v1.0.1.md`）。**P1–P4 已完成**：
+按阶段推进，每阶段可独立验收与回滚（详见 `doc/plan_v1.0.1.md`）。**P1–P4 已完成，P5 已放弃**：
 transport/provider 抽象、`doctor` 诊断子命令、统一退出码与 `--verbose`、`-p/--pid` 本地 attach、
 `-t/--target` 通道选择与 Actuator 兜底。
 
@@ -479,7 +480,7 @@ transport/provider 抽象、`doctor` 诊断子命令、统一退出码与 `--ver
 | P2 | ~~`-p/--pid` 本地 attach（目标未开 JMX 端口时，通过 attach API 动态拉起管理代理，目标侧零配置）~~ ✅ |
 | P3 | ~~Spring Boot Actuator 兜底通道（`-t auto` 在目标无 `<jmxConfigurator/>` 时自动切换到 `actuator`：按 `MBeanInfo` 现场构造参数、reload 不支持时给出替代方案）~~ ✅ |
 | P4 | ~~`clear` 命令（恢复继承级别）~~ ✅；~~`--object-name`（多 LoggerContext）~~ ✅；~~`--json` 输出~~ ✅ |
-| P5 | Spring Boot 3.x / Logback 1.4+ 的 HTTP 通道预留 |
+| P5 | ~~Spring Boot 3.x / Logback 1.4+ 的 HTTP 通道预留~~ ❌ **不做**：现有目标栈是 JDK 8 + Spring Boot 1.5.6 → 2.7.18，不涉及 3.x；真要支持时，`LoggerProvider` 抽象已经够容纳一个 HTTP 实现，届时按真实签名实现即可，不做提前预留 |
 
 ## 开发
 
