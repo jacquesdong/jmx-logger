@@ -157,7 +157,6 @@ Logger                                             Level      Effective
 ROOT                                               INFO       INFO
 com.example                                                   INFO
 com.example.service.OrderService                   DEBUG      DEBUG
-Level 为空表示该 logger 未单独配置级别，继承父 logger
 
 共 3 个 logger
 ```

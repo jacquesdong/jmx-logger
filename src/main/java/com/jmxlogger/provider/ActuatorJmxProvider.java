@@ -146,7 +146,7 @@ public class ActuatorJmxProvider implements LoggerProvider {
     @Override
     public String getLoggerLevel(String loggerName) throws Exception {
         Levels levels = levelsOf(loggerName);
-        // 与 logback 侧一致：查不到 / 未配置都返回空串，由命令层留空（含义在表后脚注说明）
+        // 与 logback 侧一致：查不到 / 未配置都返回空串，由命令层留空（含义见 README）
         return levels == null ? "" : levels.configured;
     }
 

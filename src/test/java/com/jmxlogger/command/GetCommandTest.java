@@ -50,8 +50,9 @@ public class GetCommandTest {
         // 目标侧的真值是空串（logback 的 EMPTY 常量），输出就该是空：
         // 不渲染 "(inherited)" 这类目标侧并不存在的取值
         assertTrue("不该再渲染 (inherited)，实际:\n" + result, !result.out.contains("(inherited)"));
-        assertTrue("空 Level 的含义必须写在脚注里，实际:\n" + result,
-                result.out.contains("Level 为空表示该 logger 未单独配置级别，继承父 logger"));
+        // 脚注已按需求去掉：空 Level 的含义记在 README，命令行输出保持紧凑
+        assertTrue("不该再打印空 Level 的脚注，实际:\n" + result,
+                !result.out.contains("Level 为空"));
 
         String row = rowOf(result.out, "com.example.Foo");
         assertTrue("应列出 com.example.Foo，实际:\n" + result, row.length() > 61);

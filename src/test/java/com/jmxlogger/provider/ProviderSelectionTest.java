@@ -166,10 +166,10 @@ public class ProviderSelectionTest {
         CliRunner.Result result = CliRunner.run("-s", server.server(), "get", "com.example.Foo");
         assertEquals(result.toString(), ExitCodes.OK, result.exitCode);
         assertTrue(result.out.contains("com.example.Foo"));
-        // 目标侧的真值是空串：Level 列留空，含义由脚注说明，不渲染 (inherited)
+        // 目标侧的真值是空串：Level 列留空，不渲染 (inherited)；含义见 README
         assertTrue("不该再渲染 (inherited)，实际输出:\n" + result.out, !result.out.contains("(inherited)"));
-        assertTrue("空 Level 的含义必须写在脚注里，实际输出:\n" + result.out,
-                result.out.contains("Level 为空表示该 logger 未单独配置级别，继承父 logger"));
+        assertTrue("不该再打印空 Level 的脚注，实际输出:\n" + result.out,
+                !result.out.contains("Level 为空"));
     }
 
     /** 端到端：actuator 通道下 set 要真正改到目标。 */

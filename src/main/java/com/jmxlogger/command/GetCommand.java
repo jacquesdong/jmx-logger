@@ -61,7 +61,6 @@ public class GetCommand implements Callable<Integer> {
             String effective = client.getLoggerEffectiveLevel(logger);
             printRow(logger, level, effective);
         }
-        printInheritedNote();
         System.out.println("\n共 " + loggers.length + " 个 logger");
     }
 
@@ -86,7 +85,6 @@ public class GetCommand implements Callable<Integer> {
             String effective = client.getLoggerEffectiveLevel(logger);
             printRow(logger, level, effective);
         }
-        printInheritedNote();
         System.out.println("\n共 " + matched.size() + " 个 logger");
     }
 
@@ -95,7 +93,6 @@ public class GetCommand implements Callable<Integer> {
         String effective = client.getLoggerEffectiveLevel(loggerName);
         printHeader();
         printRow(loggerName, level, effective);
-        printInheritedNote();
     }
 
     private void printHeader() {
@@ -108,13 +105,9 @@ public class GetCommand implements Callable<Integer> {
                 logger,
                 // 目标侧的真值就是「空」：logback 对「未配置级别」与「logger 不存在」都返回空串
                 // （源码常量 JMXConfigurator.EMPTY），actuator 的 configuredLevel 同样为空。
-                // 空就留空，含义交给表后的脚注说明，不渲染成 "(inherited)" 这类目标侧没有的取值
+                // 空就留空，不渲染成 "(inherited)" 这类目标侧没有的取值；
+                // 空值的含义（未单独配置级别、继承父 logger）写在 README，命令行输出不再带脚注
                 level == null ? "" : level,
                 effective == null ? "" : effective);
-    }
-
-    /** 空 Level 必须解释，否则一列空白无从解读。 */
-    private void printInheritedNote() {
-        System.out.println("Level 为空表示该 logger 未单独配置级别，继承父 logger");
     }
 }
