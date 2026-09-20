@@ -20,6 +20,7 @@ import java.util.concurrent.Callable;
  * jmx-logger get                       列出单独配置了级别的 logger
  * jmx-logger get --all                 连同未单独配置级别的一起列出
  * jmx-logger get --effective           同时显示实际生效级别
+ * jmx-logger get --json                以 JSON 输出（字段名与表格列一一对应）
  * jmx-logger get <name>                查看指定 logger（未配置也照样给出这一行）
  * jmx-logger get <name> -r             递归：该 logger 及其子 logger 中配置过级别的
  * </pre>
@@ -59,6 +60,11 @@ public class GetCommand implements Callable<Integer> {
             description = "额外显示实际生效级别（每个 logger 多一次 JMX 调用，默认不查）")
     private boolean effective;
 
+    /** 输出 JSON（字段名与表格列一一对应），供脚本消费。 */
+    @Option(names = {"--json"},
+            description = "以 JSON 输出（字段与表格列对应：logger / level / effective）")
+    private boolean json;
+
     /**
      * 异常直接抛给顶层 {@code JmxLoggerCli} 的执行异常处理器，由它统一决定退出码与输出格式；
      * 本方法不 {@code System.exit}，因此测试可以直接调用。
@@ -89,7 +95,7 @@ public class GetCommand implements Callable<Integer> {
             }
             rows.add(row(client, logger, level));
         }
-        printTable(rows, loggers.length);
+        printResult(rows, loggers.length);
     }
 
     private void listRecursive(JmxClient client, String base) throws Exception {
@@ -115,14 +121,15 @@ public class GetCommand implements Callable<Integer> {
             }
             rows.add(row(client, logger, level));
         }
-        printTable(rows, matched.size());
+        printResult(rows, matched.size());
     }
 
     private void showOne(JmxClient client, String loggerName) throws Exception {
         // 显式点名的 logger 一定给出这一行：Level 留空本身就是「继承父 logger」的答案，
         // 什么都不打会让人以为命令没生效
-        printHeader();
-        printRow(loggerName, client.getLoggerLevel(loggerName), effectiveLevelOf(client, loggerName));
+        List<String[]> rows = new ArrayList<String[]>();
+        rows.add(row(client, loggerName, client.getLoggerLevel(loggerName)));
+        printResult(rows, rows.size());
     }
 
     /** 组装一行待打印的数据；生效级别只在 {@code --effective} 时才查。 */
@@ -130,9 +137,102 @@ public class GetCommand implements Callable<Integer> {
         return new String[]{logger, level, effective ? client.getLoggerEffectiveLevel(logger) : null};
     }
 
-    /** 生效级别只在 {@code --effective} 时才查：每个 logger 都要一次独立的远程调用。 */
-    private String effectiveLevelOf(JmxClient client, String loggerName) throws Exception {
-        return effective ? client.getLoggerEffectiveLevel(loggerName) : null;
+    /** 表格（默认）或 JSON（{@code --json}）：两种形态共用收集好的 rows，避免说法不一致。 */
+    private void printResult(List<String[]> rows, int total) {
+        if (json) {
+            printJson(rows, total);
+        } else {
+            printTable(rows, total);
+        }
+    }
+
+    /**
+     * JSON 输出。字段名与表格列一一对应（{@code logger} / {@code level} / {@code effective}）：
+     * 看得懂表格就看得懂 JSON。两点约定：
+     * <ul>
+     *   <li>未单独配置级别 → {@code "level": null}（不是空串）；</li>
+     *   <li>没加 {@code --effective} 时 {@code effective} 字段<b>整个不出现</b>——{@code null}
+     *       已被"未配置"占用，两者混在一起脚本就分不出来了。</li>
+     * </ul>
+     * 统计与表格一致：{@code listed} 是数组长度，有省略时才有 {@code omitted}。
+     */
+    private void printJson(List<String[]> rows, int total) {
+        List<String> items = new ArrayList<String>();
+        for (String[] row : rows) {
+            items.add(jsonObject(
+                    "logger", jsonString(row[0]),
+                    "level", levelJson(row[1]),
+                    "effective", row[2] == null ? null : jsonString(row[2])));
+        }
+        int omitted = total - rows.size();
+        System.out.println(jsonObject(
+                "loggers", jsonArray(items),
+                "listed", String.valueOf(rows.size()),
+                "omitted", omitted == 0 ? null : String.valueOf(omitted)));
+    }
+
+    /**
+     * {@code level} 字段的值：目标侧对"未单独配置级别"返回的是<b>空串</b>
+     * （logback 的 {@code EMPTY} / actuator 的空 configuredLevel），JSON 里统一成 {@code null}
+     * ——比空串好判断，也不与"字段不出现"混淆（后者用 Java null 表示，那是另一件事）。
+     */
+    private static String levelJson(String level) {
+        return level == null || level.isEmpty() ? "null" : jsonString(level);
+    }
+
+    /** 字段名与值片段成对给出；值片段为 {@code null} 的字段整个跳过（表示"本次没有这一项"）。 */
+    private static String jsonObject(String... namesAndValues) {
+        StringBuilder out = new StringBuilder("{");
+        for (int i = 0; i < namesAndValues.length; i += 2) {
+            String value = namesAndValues[i + 1];
+            if (value == null) {
+                continue;
+            }
+            if (out.length() > 1) {
+                out.append(',');
+            }
+            out.append(jsonString(namesAndValues[i])).append(':').append(value);
+        }
+        return out.append('}').toString();
+    }
+
+    private static String jsonArray(List<String> items) {
+        return "[" + String.join(",", items) + "]";
+    }
+
+    /** JSON 字符串；{@code null} 输出裸 {@code null}。控制字符按规范转义，非 ASCII 原样输出。 */
+    private static String jsonString(String value) {
+        if (value == null) {
+            return "null";
+        }
+        StringBuilder out = new StringBuilder(value.length() + 2).append('"');
+        for (int i = 0; i < value.length(); i++) {
+            char c = value.charAt(i);
+            switch (c) {
+                case '"':
+                    out.append("\\\"");
+                    break;
+                case '\\':
+                    out.append("\\\\");
+                    break;
+                case '\n':
+                    out.append("\\n");
+                    break;
+                case '\r':
+                    out.append("\\r");
+                    break;
+                case '\t':
+                    out.append("\\t");
+                    break;
+                default:
+                    if (c < 0x20) {
+                        out.append(String.format("\\u%04x", (int) c));
+                    } else {
+                        out.append(c);
+                    }
+            }
+        }
+        return out.append('"').toString();
     }
 
     /**

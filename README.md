@@ -195,6 +195,19 @@ com.example.service.OrderService                   DEBUG      DEBUG
 | `get --effective` | 只列配了级别的 logger，三列 |
 | `get --all --effective` | 全部 logger，三列 |
 
+`--json` 把同一份数据输出成机器可读的形态，字段名与表格列一一对应（`logger` / `level` / `effective`）；
+未单独配置级别是 `null`（表格里那一列留空），没加 `--effective` 时 `effective` 字段不出现，
+有省略时才有 `omitted`：
+
+```bash
+jmx-logger -s 10.0.0.5:19000 get --json                            # 单行紧凑 JSON，管道友好
+jmx-logger -s 10.0.0.5:19000 get --json | jq '.loggers[] | select(.level != null)'
+```
+
+```json
+{"loggers":[{"logger":"ROOT","level":"INFO"},{"logger":"com.example.service.OrderService","level":"DEBUG"}],"listed":2,"omitted":1}
+```
+
 ### set — 修改级别
 
 ```bash
@@ -429,7 +442,7 @@ java -jar target/jmx-logger.jar -s 10.0.0.5:19000 --username admin --password '.
 
 ## 路线图
 
-按阶段推进，每阶段可独立验收与回滚（详见 `doc/plan_v1.0.1.md`）。**P1、P2、P3 已完成，P4 进行中**：
+按阶段推进，每阶段可独立验收与回滚（详见 `doc/plan_v1.0.1.md`）。**P1–P4 已完成**：
 transport/provider 抽象、`doctor` 诊断子命令、统一退出码与 `--verbose`、`-p/--pid` 本地 attach、
 `-t/--target` 通道选择与 Actuator 兜底。
 
@@ -438,7 +451,7 @@ transport/provider 抽象、`doctor` 诊断子命令、统一退出码与 `--ver
 | P1 | ~~抽出 transport/provider 抽象~~ ✅；~~新增 `doctor` 诊断子命令~~ ✅；~~统一退出码与 `--verbose`~~ ✅ |
 | P2 | ~~`-p/--pid` 本地 attach（目标未开 JMX 端口时，通过 attach API 动态拉起管理代理，目标侧零配置）~~ ✅ |
 | P3 | ~~Spring Boot Actuator 兜底通道（`-t auto` 在目标无 `<jmxConfigurator/>` 时自动切换到 `actuator`：按 `MBeanInfo` 现场构造参数、reload 不支持时给出替代方案）~~ ✅ |
-| P4 | ~~`clear` 命令（恢复继承级别）~~ ✅；~~`--object-name`（多 LoggerContext）~~ ✅；`--json` 输出 |
+| P4 | ~~`clear` 命令（恢复继承级别）~~ ✅；~~`--object-name`（多 LoggerContext）~~ ✅；~~`--json` 输出~~ ✅ |
 | P5 | Spring Boot 3.x / Logback 1.4+ 的 HTTP 通道预留 |
 
 ## 开发
@@ -472,6 +485,7 @@ jmx-logger v1.0.0-21-gcb6fe8ed+ (20260919)   # describe + 提交时间；结尾�
 - 退出码与报错形态由 `CommandSupportTest` 与 `JmxLoggerCliTest` 里的 `execute(...)` 用例锁定
   （用法错误 2 / 运行时错误 1 / 成功 0）。改退出码要同步 `ExitCodes`、本文档与 `doc/plan_v1.0.1.md`。
 - `GetCommandTest` / `SetCommandTest` / `ReloadCommandTest` 直接跑完整 CLI（经 `CliRunner` 捕获 stdout/stderr），
-  覆盖输出表格、递归 `-r`、级别大小写归一化、"非法级别不连目标就失败"，以及目标缺失 MBean 时的退出码与文案。
+  覆盖输出表格与 `--json`、默认只列配了级别的（`--all` 全列）、`--effective` 三列、递归 `-r`、
+  级别大小写归一化、"非法级别不连目标就失败"，以及目标缺失 MBean 时的退出码与文案。
 - `LocalPidConnectorTest` 会真的 attach 一次测试进程自身：环境不支持（JRE / 容器 / seccomp）时
   用 JUnit `Assume` 跳过，不会让构建失败。

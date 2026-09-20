@@ -97,6 +97,50 @@ public class GetCommandTest {
         assertFalse("没有省略就不该出现省略说明，实际:\n" + result, result.out.contains("已省略"));
     }
 
+    /** {@code --json} 的字段名与表格列一一对应，未配置级别是 null 而不是空串。 */
+    @Test
+    public void jsonFieldsMatchTableColumns() throws Exception {
+        CliRunner.Result result = CliRunner.run("-s", server.server(), "get", "--json");
+
+        assertEquals(result.toString(), ExitCodes.OK, result.exitCode);
+        assertEquals("应是一行紧凑 JSON，实际:\n" + result.out,
+                1, result.out.trim().split("\r?\n").length);
+        assertTrue("字段名应与表格列对应，实际:\n" + result.out,
+                result.out.contains("\"logger\":\"ROOT\""));
+        assertTrue("level 列对应 level 字段，实际:\n" + result.out,
+                result.out.contains("\"logger\":\"com.example.Foo.bar\",\"level\":\"DEBUG\""));
+        assertTrue("统计信息要与表格一致，实际:\n" + result.out, result.out.contains("\"listed\":2"));
+        assertTrue("有省略就要给出省略量，实际:\n" + result.out, result.out.contains("\"omitted\":1"));
+        assertFalse("没加 --effective 时该字段不该出现，实际:\n" + result.out,
+                result.out.contains("effective"));
+    }
+
+    /** 单查 + {@code --effective}：未配置是 null，生效级别取继承值。 */
+    @Test
+    public void jsonWithEffectiveShowsInheritedLevel() throws Exception {
+        CliRunner.Result result = CliRunner.run("-s", server.server(),
+                "get", "--json", "--effective", "com.example.Foo");
+
+        assertEquals(result.toString(), ExitCodes.OK, result.exitCode);
+        assertTrue("未配置级别应是 null，实际:\n" + result.out, result.out.contains("\"level\":null"));
+        assertTrue("生效级别应取继承来的 INFO，实际:\n" + result.out,
+                result.out.contains("\"effective\":\"INFO\""));
+        assertFalse("单查没有省略量，不该出现 omitted，实际:\n" + result.out,
+                result.out.contains("omitted"));
+    }
+
+    /** {@code --all}：未配置的 logger 也进数组（level 为 null），且不再有 omitted。 */
+    @Test
+    public void jsonWithAllIncludesUnconfiguredLoggers() throws Exception {
+        CliRunner.Result result = CliRunner.run("-s", server.server(), "get", "--json", "--all");
+
+        assertEquals(result.toString(), ExitCodes.OK, result.exitCode);
+        assertTrue("未配置的 logger 也要进数组且 level 为 null，实际:\n" + result.out,
+                result.out.contains("\"logger\":\"com.example.Foo\",\"level\":null"));
+        assertTrue(result.out.contains("\"listed\":3"));
+        assertFalse("没有省略就不该有 omitted，实际:\n" + result.out, result.out.contains("omitted"));
+    }
+
     @Test
     public void showsConfiguredLevelForSingleLogger() throws Exception {
         CliRunner.Result result = CliRunner.run("-s", server.server(), "get", "com.example.Foo.bar");
