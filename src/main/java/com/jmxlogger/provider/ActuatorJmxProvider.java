@@ -143,9 +143,11 @@ public class ActuatorJmxProvider implements LoggerProvider {
         if (matched.isEmpty()) {
             throw new IllegalStateException(
                     "目标 JVM 中未找到 Spring Boot Actuator 的 loggers 端点（" + ENDPOINT_PATTERN + "）。\n"
-                    + "目标侧需引入 spring-boot-starter-actuator：\n"
-                    + "  Spring Boot 2.7 默认 JMX 全暴露，无需额外配置；\n"
-                    + "  Spring Boot 3.x 需 management.endpoints.jmx.exposure.include=health,loggers。");
+                    + "目标侧需要两步：\n"
+                    + "  1) 引入 spring-boot-starter-actuator；\n"
+                    + "  2) 设置 spring.jmx.enabled=true —— Spring Boot 2.2 起 JMX 默认关闭，\n"
+                    + "     不开它端点不会注册到 JMX（management.endpoints.jmx.exposure.include 默认已是 *）。\n"
+                    + "  Spring Boot 3.x 还需 management.endpoints.jmx.exposure.include=health,loggers。");
         }
         return matched.get(0);
     }

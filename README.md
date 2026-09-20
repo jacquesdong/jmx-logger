@@ -115,16 +115,21 @@ attach API 全程反射调用（JDK 8 位于 `tools.jar`，JDK 9+ 归入 `jdk.at
 | 通道 | 依据的 MBean | `get` / `set` | `reload` | 目标侧需要 |
 | --- | --- | --- | --- | --- |
 | `logback` | `ch.qos.logback.classic:`<br>`Name=<contextName>,Type=ch.qos.logback.classic.jmx.JMXConfigurator` | 支持 | **支持** | `logback.xml` 加 `<jmxConfigurator/>` |
-| `actuator` | `org.springframework.boot:type=Endpoint,name=Loggers`（Spring Boot 2.7）<br>`name=loggersEndpoint`（Spring Boot 1.5） | 支持 | 不支持 | `spring-boot-starter-actuator` |
+| `actuator` | `org.springframework.boot:type=Endpoint,name=Loggers`（Spring Boot 2.7）<br>`name=loggersEndpoint`（Spring Boot 1.5） | 支持 | 不支持 | `spring-boot-starter-actuator` + **`spring.jmx.enabled=true`** |
 
 端点命名与操作名两套都认（Spring Boot 1.5 的 `getLoggers()`/`getLogger`/`setLogLevel`
 与 Spring Boot 2.7 的 `loggers()`/`loggerLevels`/`configureLogLevel`），
-已在真实 Spring Boot 1.5.6 与 1.5.20 目标上实测：一次调用即可拿到全部 logger，
+已在真实 Spring Boot 1.5.6、1.5.20 与 2.7.18 目标上实测：一次调用即可拿到全部 logger，
 条数与 `logback` 通道一致（数量取决于目标应用自身的类加载情况，不固定）。
+2.7.18 上实测到的签名是 `configureLogLevel(java.lang.String, java.lang.String)`，
+`loggers()` / `loggerLevels(String)` 均返回 `java.util.Map`——第二参不是 `LogLevel` 枚举、
+返回值也不是 `CompositeData`/`TabularData`，所以这条通道不需要任何类型转换兜底。
+（这些用例固化在 `tools/e2e/`，见"开发"一节。）
 
-> Spring Boot 2.7 一侧的端点命名与操作签名**尚未在真实目标上实测**（按官方文档实现，
-> 单测用桩 MBean 覆盖）。2.7 目标建议先跑 `doctor` 看实际签名：`configureLogLevel`
-> 的第二个参数可能是 `String`，也可能是本地 classpath 里没有的 `LogLevel` 枚举。
+> ⚠ 走 actuator 通道**必须**给目标加 `-Dspring.jmx.enabled=true`：Spring Boot 2.2 起 JMX
+> 默认为关闭，只引 `spring-boot-starter-actuator` 端点不会注册到 JMX
+> （`management.endpoints.jmx.exposure.include` 的默认值确实是 `*`，但没有 MBeanServer 可暴露）。
+> 目标"引了 actuator 却看不到端点"时，`doctor` 会把这条原因直接指出来。
 
 `-t auto`（默认）**先 logback 后 actuator**：logback 能力最全（含配置重载），
 actuator 只作为兜底；两条都没有时报错里同时给出两边的缺失原因与目标侧该加的配置。
@@ -359,12 +364,33 @@ ch.qos.logback.classic:Name=<contextName>,Type=ch.qos.logback.classic.jmx.JMXCon
 > 未开启认证时不要传 `--username`/`--password`，反之亦然。
 > 密码建议走环境变量或交互式读取，`--password <明文>` 会出现在 `ps` 里（详见"安全建议"）。
 
+### 3. 走 actuator 兜底（可选，目标侧没有 `<jmxConfigurator/>` 时）
+
+两件事缺一不可：
+
+1. classpath 里有 `spring-boot-starter-actuator`；
+2. 启动参数加 `-Dspring.jmx.enabled=true` —— **Spring Boot 2.2 起 JMX 默认为关闭**，
+   不打开它，端点根本不会注册到 JMX。
+
+`management.endpoints.jmx.exposure.include` 的默认值本来就是 `*`（`loggers` 在其中），
+所以**不需要**为它额外配置；真正容易漏的是 `spring.jmx.enabled`。目标"引了 actuator
+却看不到端点"时，`doctor` 会据此直接点出原因：
+
+```text
+[缺失] 未找到 Actuator loggers 端点。
+       classpath 里有 spring-boot-actuator，但端点没注册到 JMX：
+       多半是没设 spring.jmx.enabled=true（Spring Boot 2.2 起 JMX 默认关闭）。
+```
+
+> Spring Boot 3.x 还需显式 `management.endpoints.jmx.exposure.include=health,loggers`（3.x 的 JMX 默认只暴露 `health`）；
+> 而 logback ≥ 1.3 已移除 `JMXConfigurator`，那时 actuator 就是唯一的通道。
+
 ## 兼容性
 
 | 目标应用 | 内置 Logback | `JMXConfigurator` | 本工具 |
 | --- | --- | --- | --- |
 | Spring Boot 1.5.6 / 1.5.20（JDK 8） | 1.1.x | 有 | 支持（实测） |
-| Spring Boot 2.7.18（JDK 8+） | 1.2.12 | 有 | logback 通道支持、无需改动；actuator 通道未实测 |
+| Spring Boot 2.7.18（JDK 8+） | 1.2.12 | 有 | logback 通道无需改动；actuator 通道需 `spring.jmx.enabled=true`（已实测） |
 | Spring Boot 3.x（JDK 17+） | 1.4.x+ | **已移除** | 暂不支持 |
 
 关键点：
@@ -404,6 +430,7 @@ java -jar target/jmx-logger.jar -s 10.0.0.5:19000 get || echo "失败，退出�
 | `连接 JMX 服务器超时（超过 N ms）` | TCP 能建连但对面不回应，典型是防火墙丢包或 `jmxremote.rmi.port` 未放通；按报错里的提示逐项核对，或先用 `--timeout 30` 排除"只是慢" |
 | `未找到 Logback JMXConfigurator MBean` | 目标 `logback.xml` 缺 `<jmxConfigurator/>`，或该 JVM 用的不是 Logback；带 actuator 时会自动兜底（见"两条日志通道"），不想兜底就 `-t logback` 看原始报错 |
 | `目标 JVM 上没有可用的日志通道` | logback 与 actuator 两条都没找到：按报错里的 a/b 二选一加配置，或 `-t` 强制指定；用 `doctor` 看目标上真实有哪些 MBean |
+| `未找到 Spring Boot Actuator 的 loggers 端点` | 目标侧两步缺一不可：引 `spring-boot-starter-actuator` **且** 设 `spring.jmx.enabled=true`——Spring Boot 2.2 起 JMX 默认关闭，不设它端点不会注册到 JMX；`doctor` 若在 classpath 里认到 actuator，会直接把这条点出来 |
 | `无法把取值 "DEBUG" 转成目标 MBean 声明的参数类型 org.springframework.boot.logging.LogLevel` | actuator 端点把级别暴露成本地没有的 `LogLevel` 枚举，远程无法构造：改用 `-t logback`，或用 `doctor` 看真实签名 |
 | `当前通道 actuator 不支持重载配置` | actuator 端点不支持重载：目标 `logback.xml` 开 `scan="true"`，或加 `<jmxConfigurator/>` 后走 `-t logback` |
 | `未知的 -t/--target 取值 "..."` | 取值只有 `auto` / `logback` / `actuator` 三个 |
@@ -491,3 +518,6 @@ jmx-logger v1.0.0-21-gcb6fe8ed+ (20260919)   # describe + 提交时间；结尾�
   值片段为 null 的字段不出现）；将来把这个手写实现换成 Gson / Jackson 时，这些用例必须原样通过。
 - `LocalPidConnectorTest` 会真的 attach 一次测试进程自身：环境不支持（JRE / 容器 / seccomp）时
   用 JUnit `Assume` 跳过，不会让构建失败。
+- `tools/e2e/` 是**端到端夹具**（真实的 Spring Boot 1.5.6 / 2.7.18 目标进程 + 四种目标侧配置），
+  单独跑：`tools/e2e/verify.sh 2.7.18`。它不在根 pom 的 `<modules>` 里、也不进 `./mvnw test`——
+  单测锁契约（秒级、离线），夹具做真机验收（起进程、占端口），理由与用法见该目录的 README。

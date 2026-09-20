@@ -1,0 +1,52 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  e2e 夹具：真实的 Spring Boot 1.5.6 目标应用（自带 logback 1.1.11）。
+
+  用途是"回归对照"：README 里 1.5.6 已在真机实测过，这里把它固化成可重复的夹具，
+  避免以后改客户端时只能靠记忆判断"1.5 还行不行"。1.5.x 只能跑在 JDK 8 上。
+
+  同样**不属于** jmx-logger 的构建，用 tools/e2e/run-target.sh 单独构建启动。
+-->
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>org.springframework.boot</groupId>
+        <artifactId>spring-boot-starter-parent</artifactId>
+        <version>1.5.6.RELEASE</version>
+        <relativePath/>
+    </parent>
+
+    <groupId>com.jmxlogger.e2e</groupId>
+    <artifactId>boot-1.5.6-target</artifactId>
+    <version>1.0.0</version>
+    <name>jmx-logger e2e target (Spring Boot 1.5.6)</name>
+
+    <properties>
+        <java.version>1.8</java.version>
+        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+    </properties>
+
+    <dependencies>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-web</artifactId>
+        </dependency>
+        <!-- 1.5 的 actuator 端点是 name=loggersEndpoint（客户端两套命名都认） -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-actuator</artifactId>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>org.springframework.boot</groupId>
+                <artifactId>spring-boot-maven-plugin</artifactId>
+            </plugin>
+        </plugins>
+    </build>
+</project>

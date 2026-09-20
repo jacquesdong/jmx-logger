@@ -1,6 +1,9 @@
 # Build output
 target/
 
+# e2e 夹具留下的目标日志（tools/e2e/verify.sh 生成）
+tools/e2e/target-*.log
+
 # IDE
 .idea/
 *.iml

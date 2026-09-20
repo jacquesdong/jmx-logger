@@ -1,0 +1,52 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  e2e 夹具：真实的 Spring Boot 2.7.18 目标应用，只为给 jmx-logger 提供
+  "真的 logback + 可选的 actuator 端点"。
+
+  它**不属于** jmx-logger 的构建（根 pom 的 <modules> 里没有它）：
+  三个 Boot 版本是不同的 parent，不能共存于同一份构建，也不需要每次 ./mvnw test 都构建它。
+  用 tools/e2e/run-target.sh 单独构建并启动。
+-->
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>org.springframework.boot</groupId>
+        <artifactId>spring-boot-starter-parent</artifactId>
+        <version>2.7.18</version>
+        <relativePath/>
+    </parent>
+
+    <groupId>com.jmxlogger.e2e</groupId>
+    <artifactId>boot-2.7.18-target</artifactId>
+    <version>1.0.0</version>
+    <name>jmx-logger e2e target (Spring Boot 2.7.18)</name>
+
+    <properties>
+        <java.version>1.8</java.version>
+        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+    </properties>
+
+    <dependencies>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-web</artifactId>
+        </dependency>
+        <!-- actuator 的 loggers 端点：验证 `-t actuator` 兜底通道（JMX 侧默认全暴露） -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-actuator</artifactId>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>org.springframework.boot</groupId>
+                <artifactId>spring-boot-maven-plugin</artifactId>
+            </plugin>
+        </plugins>
+    </build>
+</project>

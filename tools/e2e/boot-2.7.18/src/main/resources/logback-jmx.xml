@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  e2e 夹具的日志配置（jmx / attach 模式用）。
+
+  挂上 <jmxConfigurator/>：目标 JVM 会注册 ch.qos.logback.classic:Name=<ctx>,Type=...JMXConfigurator，
+  jmx-logger 的 logback 通道（get / set / clear / reload）全部可用。
+-->
+<configuration>
+    <jmxConfigurator/>
+
+    <appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
+        <encoder>
+            <pattern>%d{HH:mm:ss.SSS} %-5level %logger{36} - %msg%n</pattern>
+        </encoder>
+    </appender>
+
+    <root level="INFO">
+        <appender-ref ref="CONSOLE"/>
+    </root>
+</configuration>

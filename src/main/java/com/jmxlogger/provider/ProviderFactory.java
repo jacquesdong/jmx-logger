@@ -130,7 +130,8 @@ public final class ProviderFactory {
                 + "  2) Actuator loggers 端点（--target " + ActuatorJmxProvider.ID + "）: " + actuatorFailure + "\n"
                 + "目标侧二选一即可：\n"
                 + "  a) logback.xml 中加 <jmxConfigurator/>（推荐，支持 reload）；\n"
-                + "  b) 引入 spring-boot-starter-actuator（Spring Boot 2.7 默认 JMX 全暴露，无需额外配置）。\n"
+                + "  b) 引入 spring-boot-starter-actuator，并设置 spring.jmx.enabled=true\n"
+                + "     （Spring Boot 2.2 起 JMX 默认关闭，不开它端点不会注册到 JMX）。\n"
                 + "doctor 可以列出目标上真实存在的 MBean；也可用 --target 强制指定通道。";
     }
 

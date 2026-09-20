@@ -89,7 +89,7 @@ public class DoctorCommand implements Callable<Integer> {
             out.append("  本地连接器地址: ").append(((LocalPidConnector) connector).address()).append('\n');
         }
         appendJvmInfo(out, mbsc);
-        appendClasspathHints(out, mbsc);
+        Map<String, String> classpath = appendClasspathHints(out, mbsc);
 
         Set<ObjectName> logbackConfigurators = queryNames(mbsc, LOGBACK_PATTERN);
         Set<ObjectName> loggerEndpoints = findLoggerEndpoints(mbsc);
@@ -108,7 +108,8 @@ public class DoctorCommand implements Callable<Integer> {
         }
 
         section(out, "结论与建议");
-        appendAdvice(out, logbackConfigurators, loggerEndpoints, connector instanceof LocalPidConnector);
+        appendAdvice(out, logbackConfigurators, loggerEndpoints,
+                connector instanceof LocalPidConnector, classpath);
         return out.toString();
     }
 
@@ -133,8 +134,10 @@ public class DoctorCommand implements Callable<Integer> {
      * 从目标 JVM 的 classpath 里认 logback / boot 的版本：这决定了
      * 「有没有 JMXConfigurator」（logback ≥ 1.3 已移除）与「actuator 在不在」。
      * 只认 jar 名，不读内容，也不打印整条 classpath。
+     *
+     * @return 识别到的 artifact → 版本；结论段据此判断"端点缺失是没引依赖还是没开 JMX"
      */
-    private void appendClasspathHints(StringBuilder out, MBeanServerConnection mbsc) {
+    private Map<String, String> appendClasspathHints(StringBuilder out, MBeanServerConnection mbsc) {
         String classPath = null;
         try {
             classPath = readAttribute(mbsc, new ObjectName(RUNTIME_OBJECT_NAME), "ClassPath");
@@ -142,7 +145,7 @@ public class DoctorCommand implements Callable<Integer> {
             // classpath 读不到（权限/精简 JVM）时不影响其余诊断
         }
         if (classPath == null || classPath.isEmpty()) {
-            return;
+            return Collections.emptyMap();
         }
 
         Map<String, String> found = new LinkedHashMap<>();
@@ -153,7 +156,7 @@ public class DoctorCommand implements Callable<Integer> {
             }
         }
         if (found.isEmpty()) {
-            return;
+            return found;
         }
 
         out.append("  classpath 识别: ");
@@ -172,6 +175,7 @@ public class DoctorCommand implements Callable<Integer> {
             out.append("  注意: logback ").append(logbackVersion)
                     .append(" 已移除 JMXConfigurator（≥1.3），只能走 actuator / HTTP 通道\n");
         }
+        return found;
     }
 
     /** logback ≥ 1.3 起 {@code ch.qos.logback.classic.jmx} 包被删除。 */
@@ -210,7 +214,8 @@ public class DoctorCommand implements Callable<Integer> {
      *                    建议里不该再让人去配 {@code -Dcom.sun.management.jmxremote.port}。
      */
     private void appendAdvice(StringBuilder out, Set<ObjectName> logbackConfigurators,
-                              Set<ObjectName> loggerEndpoints, boolean localAttach) {
+                              Set<ObjectName> loggerEndpoints, boolean localAttach,
+                              Map<String, String> classpath) {
         boolean hasLogback = !logbackConfigurators.isEmpty();
         boolean hasActuator = !loggerEndpoints.isEmpty();
 
@@ -232,6 +237,7 @@ public class DoctorCommand implements Callable<Integer> {
                             : "--target auto 已自动兜底到它（get / set 可用，reload 不支持）。\n");
         } else {
             out.append("  [缺失] 未找到 Actuator loggers 端点。\n");
+            appendActuatorHint(out, classpath);
         }
 
         if (hasLogback) {
@@ -247,9 +253,27 @@ public class DoctorCommand implements Callable<Integer> {
         out.append("  目标侧二选一即可：\n");
         out.append("    1) logback 通道（推荐，支持 reload）：logback.xml 中加 <jmxConfigurator/>，\n");
         out.append("       并以 -Dcom.sun.management.jmxremote.port=<port> 启动（rmi.port 与 port 保持一致）；\n");
-        out.append("    2) actuator 通道：引入 spring-boot-starter-actuator。\n");
-        out.append("       Spring Boot 2.7 默认 JMX 全暴露无需额外配置；");
-        out.append("Spring Boot 3.x 需 management.endpoints.jmx.exposure.include=health,loggers。\n");
+        out.append("    2) actuator 通道：引入 spring-boot-starter-actuator，并设置 spring.jmx.enabled=true\n");
+        out.append("       （Spring Boot 2.2 起 JMX 默认关闭，不开它端点不会注册到 JMX）；\n");
+        out.append("       Spring Boot 3.x 还需 management.endpoints.jmx.exposure.include=health,loggers。\n");
+    }
+
+    /**
+     * actuator 端点缺失时给出最可能的原因。
+     *
+     * <p>Spring Boot 2.2 起 {@code spring.jmx.enabled} 默认为 {@code false}：即使引入了 actuator，
+     * 端点也不会注册到 JMX（{@code management.endpoints.jmx.exposure.include} 的默认值虽是
+     * {@code *}，但没有 MBeanServer 可供暴露）。classpath 里认到 actuator，恰好能把
+     * "没引依赖"与"引了但没开 JMX"这两种完全不同的坑分开说。
+     */
+    private static void appendActuatorHint(StringBuilder out, Map<String, String> classpath) {
+        if (classpath.containsKey("spring-boot-actuator")) {
+            out.append("       classpath 里有 spring-boot-actuator，但端点没注册到 JMX：\n")
+                    .append("       多半是没设 spring.jmx.enabled=true（Spring Boot 2.2 起 JMX 默认关闭）。\n");
+        } else if (classpath.containsKey("spring-boot")) {
+            out.append("       classpath 里是 Spring Boot 但没有 actuator：\n")
+                    .append("       引入 spring-boot-starter-actuator 后还需 spring.jmx.enabled=true。\n");
+        }
     }
 
     private void appendMBeanInfo(StringBuilder out, MBeanServerConnection mbsc, ObjectName name) {

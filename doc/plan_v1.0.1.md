@@ -7,6 +7,11 @@
 - **升级到 Spring Boot 2.7.18 不会破坏现有工具**：Spring Boot 2.7.18 受管 `logback-classic = 1.2.12`，而 logback `v_1.1.11` 与 `v_1.2.13` 的 `ch/qos/logback/classic/jmx/` 目录文件完全一致（`JMXConfigurator.java` 均为 9660 字节），即 1.1.x → 1.2.x 的 JMX 操作面不变。现有 `JmxClient` 调用的方法名/ObjectName 在两个版本上都有效。
 - **Spring Boot 2.7.18 要求 Java 8**（兼容至 Java 21），因此 `maven.compiler.source/target=8` 必须保持不动。
 - **Spring Boot 2.7 的 Actuator JMX 默认全暴露**：`management.endpoints.jmx.exposure.include` 默认为 `*`，`loggers` 端点 JMX 列默认为 Yes ⇒ 只要目标应用带 actuator，即可零配置作为兜底通道（与 Spring Boot 3.x 默认仅 `health` 不同，不可混写）。
+
+  > **更正（实测，见 `tools/e2e/`）**：这条结论不完整。Spring Boot **2.2 起 `spring.jmx.enabled` 默认为 `false`**，
+  > 只引 `spring-boot-starter-actuator` 端点**不会注册到 JMX**——`exposure.include` 默认确实是 `*`，
+  > 但前提是存在 MBeanServer。2.7.18 上实测到的签名：`configureLogLevel(java.lang.String, java.lang.String)`、
+  > `loggers()` / `loggerLevels(String)` 均返回 `java.util.Map`（不是 `LogLevel` 枚举，也不是 `CompositeData`/`TabularData`）。
 - **logback ≥ 1.3 才彻底移除 JMXConfigurator**（`v_1.4.14`/`v_1.5.13`/master 已无 jmx 目录）。这只影响未来 JDK 17 + Spring Boot 3 的场景，本计划通过 Provider 抽象预留，不作为当前重点。
 
 ### 真实目标进程实测结论（2026-09-19，本机 `127.0.0.1:19000` 上的 Spring Boot 1.5 应用）

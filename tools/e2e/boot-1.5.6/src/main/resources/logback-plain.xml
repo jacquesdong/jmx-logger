@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  e2e 夹具的日志配置：**故意不配** <jmxConfigurator/>。
+  1.5.6 的夹具目前只跑 jmx / attach 模式（actuator 通道已在真机实测过），
+  这个文件留着是为了需要时能验证"目标没配 jmxConfigurator"的报错路径。
+-->
+<configuration>
+    <appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
+        <encoder>
+            <pattern>%d{HH:mm:ss.SSS} %-5level %logger{36} - %msg%n</pattern>
+        </encoder>
+    </appender>
+
+    <root level="INFO">
+        <appender-ref ref="CONSOLE"/>
+    </root>
+</configuration>

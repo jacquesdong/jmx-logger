@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  e2e 夹具的日志配置（actuator / none 模式用）——**故意不配** <jmxConfigurator/>。
+
+  这样目标上就没有 logback 的 JMXConfigurator MBean：
+  - actuator 模式：`-t auto` 必须自动兜底到 actuator 的 loggers 端点；
+  - none 模式：两条通道都没有，必须报"没有可用的日志通道"（退出码 1）。
+-->
+<configuration>
+    <appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
+        <encoder>
+            <pattern>%d{HH:mm:ss.SSS} %-5level %logger{36} - %msg%n</pattern>
+        </encoder>
+    </appender>
+
+    <root level="INFO">
+        <appender-ref ref="CONSOLE"/>
+    </root>
+</configuration>
