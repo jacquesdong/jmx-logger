@@ -8,6 +8,7 @@
 - 运行时依赖：仅 [picocli](https://picocli.info/)（打包进 fat jar）
 - 构建要求：JDK 8+（编译目标固定为 Java 8）
 - 目标应用：任何带 Logback（1.1.x / 1.2.x）的 JVM，实测覆盖 Spring Boot 1.5.6 与 1.5.20，并兼容 2.7.18
+- 变更历史：[CHANGELOG.md](CHANGELOG.md)
 
 ---
 
@@ -497,10 +498,10 @@ transport/provider 抽象、`doctor` 诊断子命令、统一退出码与 `--ver
 
 ```console
 $ java -jar target/jmx-logger.jar -V
-jmx-logger v1.0.0-21-gcb6fe8ed+ (20260919)   # describe + 提交时间；结尾的 + 表示工作区有未提交改动
+jmx-logger v1.0.1 (20260920)                 # describe + 提交时间；结尾的 + 表示工作区有未提交改动
 ```
 
-输出优先级：`git.commit.id.describe` → pom 版本号（`jmx-logger 1.0.0`，无 `.git` / 浅克隆 / 无 tag）→
+输出优先级：`git.commit.id.describe` → pom 版本号（`jmx-logger 1.0.1`，无 `.git` / 浅克隆 / 无 tag）→
 `jmx-logger (构建信息不可用：未找到版本属性文件)`（IDE 直接跑未过滤的 resources 才会出现）。
 没有 `.git` 时插件跳过而非构建失败，其他命令不受影响。
 
