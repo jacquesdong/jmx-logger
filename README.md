@@ -520,5 +520,6 @@ jmx-logger v1.0.0-21-gcb6fe8ed+ (20260919)   # describe + 提交时间；结尾�
 - `LocalPidConnectorTest` 会真的 attach 一次测试进程自身：环境不支持（JRE / 容器 / seccomp）时
   用 JUnit `Assume` 跳过，不会让构建失败。
 - `tools/e2e/` 是**端到端夹具**（真实的 Spring Boot 1.5.6 / 2.7.18 目标进程 + 四种目标侧配置），
-  单独跑：`tools/e2e/verify.sh 2.7.18`。它不在根 pom 的 `<modules>` 里、也不进 `./mvnw test`——
+  单独跑：`just verify`（默认 1.5.6）/ `just verify 2.7.18` / `just target 2.7.18 actuator`（前台起目标手工试）。
+  它不在根 pom 的 `<modules>` 里、也不进 `./mvnw test`——
   单测锁契约（秒级、离线），夹具做真机验收（起进程、占端口），理由与用法见该目录的 README。

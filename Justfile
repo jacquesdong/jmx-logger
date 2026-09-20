@@ -1,23 +1,36 @@
-# fat jar 路径：pom.xml 里用 <finalName>jmx-logger</finalName> 固定了产物名，
-# 因此这里不含版本号，升级 <version> 后无需同步修改
-jar_file := "target/jmx-logger.jar"
 
-# 运行
-run *args:
+# 调试
+exec *args:
     ./mvnw exec:java -Dexec.mainClass="com.jmxlogger.JmxLoggerCli" -Dexec.args="{{args}}"
 
 # 编译
 compile *args:
-    ./mvnw compile {{args}}     
+    ./mvnw compile {{args}}
 
-# 运行单元测试
+# 测试
 test *args:
     ./mvnw test {{args}}
 
-# 打成可执行 fat jar
+# 打包
+[group('jar')]
 package:
     ./mvnw clean package
 
-# 用 fat jar 运行，例：just jar -s 127.0.0.1:19000 get
-jar *args:
+# 路径
+# pom.xml 里用 <finalName>jmx-logger</finalName>
+# 升级 <version> 后无需同步修改
+jar_file := "target/jmx-logger.jar"
+# 运行，just run get com.bayestone.server
+[group('jar')]
+run *args:
     java -jar {{jar_file}} {{args}}
+
+# 端到端验收：启动 Spring Boot 服务，并执行 e2e 测试
+[group('e2e')]
+verify version="1.5.6":
+    tools/e2e/verify.sh {{version}}
+
+# 前台起一个 e2e 目标供手工验证
+[group('e2e')]
+target version="1.5.6" mode="jmx":
+    tools/e2e/run-target.sh {{version}} {{mode}}
