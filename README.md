@@ -487,5 +487,7 @@ jmx-logger v1.0.0-21-gcb6fe8ed+ (20260919)   # describe + 提交时间；结尾�
 - `GetCommandTest` / `SetCommandTest` / `ReloadCommandTest` 直接跑完整 CLI（经 `CliRunner` 捕获 stdout/stderr），
   覆盖输出表格与 `--json`、默认只列配了级别的（`--all` 全列）、`--effective` 三列、递归 `-r`、
   级别大小写归一化、"非法级别不连目标就失败"，以及目标缺失 MBean 时的退出码与文案。
+- `JsonTest` 锁住 `support/Json` 的转义与拼装契约（引号、反斜杠、控制字符、成对与孤立的代理项、
+  值片段为 null 的字段不出现）；将来把这个手写实现换成 Gson / Jackson 时，这些用例必须原样通过。
 - `LocalPidConnectorTest` 会真的 attach 一次测试进程自身：环境不支持（JRE / 容器 / seccomp）时
   用 JUnit `Assume` 跳过，不会让构建失败。

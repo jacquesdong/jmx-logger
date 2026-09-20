@@ -3,6 +3,7 @@ package com.jmxlogger.command;
 import com.jmxlogger.JmxClient;
 import com.jmxlogger.JmxLoggerCli;
 import com.jmxlogger.support.ExitCodes;
+import com.jmxlogger.support.Json;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.Option;
 import picocli.CommandLine.Parameters;
@@ -159,16 +160,16 @@ public class GetCommand implements Callable<Integer> {
     private void printJson(List<String[]> rows, int total) {
         List<String> items = new ArrayList<String>();
         for (String[] row : rows) {
-            items.add(jsonObject(
-                    "logger", jsonString(row[0]),
+            items.add(Json.object(
+                    "logger", Json.string(row[0]),
                     "level", levelJson(row[1]),
-                    "effective", row[2] == null ? null : jsonString(row[2])));
+                    "effective", row[2] == null ? null : Json.string(row[2])));
         }
         int omitted = total - rows.size();
-        System.out.println(jsonObject(
-                "loggers", jsonArray(items),
-                "listed", String.valueOf(rows.size()),
-                "omitted", omitted == 0 ? null : String.valueOf(omitted)));
+        System.out.println(Json.object(
+                "loggers", Json.arrayOf(items),
+                "listed", Json.number(rows.size()),
+                "omitted", omitted == 0 ? null : Json.number(omitted)));
     }
 
     /**
@@ -177,62 +178,7 @@ public class GetCommand implements Callable<Integer> {
      * ——比空串好判断，也不与"字段不出现"混淆（后者用 Java null 表示，那是另一件事）。
      */
     private static String levelJson(String level) {
-        return level == null || level.isEmpty() ? "null" : jsonString(level);
-    }
-
-    /** 字段名与值片段成对给出；值片段为 {@code null} 的字段整个跳过（表示"本次没有这一项"）。 */
-    private static String jsonObject(String... namesAndValues) {
-        StringBuilder out = new StringBuilder("{");
-        for (int i = 0; i < namesAndValues.length; i += 2) {
-            String value = namesAndValues[i + 1];
-            if (value == null) {
-                continue;
-            }
-            if (out.length() > 1) {
-                out.append(',');
-            }
-            out.append(jsonString(namesAndValues[i])).append(':').append(value);
-        }
-        return out.append('}').toString();
-    }
-
-    private static String jsonArray(List<String> items) {
-        return "[" + String.join(",", items) + "]";
-    }
-
-    /** JSON 字符串；{@code null} 输出裸 {@code null}。控制字符按规范转义，非 ASCII 原样输出。 */
-    private static String jsonString(String value) {
-        if (value == null) {
-            return "null";
-        }
-        StringBuilder out = new StringBuilder(value.length() + 2).append('"');
-        for (int i = 0; i < value.length(); i++) {
-            char c = value.charAt(i);
-            switch (c) {
-                case '"':
-                    out.append("\\\"");
-                    break;
-                case '\\':
-                    out.append("\\\\");
-                    break;
-                case '\n':
-                    out.append("\\n");
-                    break;
-                case '\r':
-                    out.append("\\r");
-                    break;
-                case '\t':
-                    out.append("\\t");
-                    break;
-                default:
-                    if (c < 0x20) {
-                        out.append(String.format("\\u%04x", (int) c));
-                    } else {
-                        out.append(c);
-                    }
-            }
-        }
-        return out.append('"').toString();
+        return level == null || level.isEmpty() ? "null" : Json.string(level);
     }
 
     /**
