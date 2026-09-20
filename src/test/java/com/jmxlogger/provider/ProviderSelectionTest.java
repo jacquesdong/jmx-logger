@@ -158,6 +158,106 @@ public class ProviderSelectionTest {
                 actuator.err.contains("当前通道 actuator"));
     }
 
+    /**
+     * 目标有多个 LoggerContext（多个 JMXConfigurator）时，{@code --object-name} 要点到指定的那一个：
+     * 不带它只能取查询结果里的第一个，"改错了 context"是这类工具最阴的坑。
+     */
+    @Test
+    public void objectNamePicksTheNamedConfigurator() throws Exception {
+        server.unregisterAll();
+        StubLogbackConfigurator first = new StubLogbackConfigurator();
+        first.put("ROOT", "INFO", "INFO");
+        first.put("com.example.Foo", "INFO", "INFO");
+        server.registerLogbackConfigurator(first, "default");
+
+        StubLogbackConfigurator second = new StubLogbackConfigurator();
+        second.put("ROOT", "INFO", "INFO");
+        second.put("com.example.Foo", "DEBUG", "DEBUG");
+        server.registerLogbackConfigurator(second, "other");
+
+        CliRunner.Result other = CliRunner.run("-s", server.server(),
+                "--object-name=" + configuratorName("other"), "get", "com.example.Foo");
+        assertEquals(other.toString(), ExitCodes.OK, other.exitCode);
+        assertTrue("应读到 other 这个 context（DEBUG），实际:\n" + other, other.out.contains("DEBUG"));
+        assertTrue("不该读到 default 的值，实际:\n" + other, !other.out.contains("INFO"));
+
+        CliRunner.Result defaultOne = CliRunner.run("-s", server.server(),
+                "--object-name=" + configuratorName("default"), "get", "com.example.Foo");
+        assertTrue("点名 default 应读到 INFO，实际:\n" + defaultOne, defaultOne.out.contains("INFO"));
+    }
+
+    /** logback 配置器的完整 ObjectName：{@code Name=} 就是 LoggerContext 名。 */
+    private static String configuratorName(String contextName) {
+        return LogbackJmxProvider.DOMAIN + ":Name=" + contextName
+                + ",Type=" + LogbackJmxProvider.CONFIGURATOR_TYPE;
+    }
+
+    /** 点名的 MBean 属于 actuator 时，不写 {@code --target} 也能按 domain 认出通道。 */
+    @Test
+    public void objectNameInfersActuatorChannel() throws Exception {
+        CliRunner.Result result = CliRunner.run("-s", server.server(),
+                "--object-name=org.springframework.boot:type=Endpoint,name=Loggers", "get", "com.example.Foo");
+
+        assertEquals(result.toString(), ExitCodes.OK, result.exitCode);
+        assertTrue(result.out.contains("com.example.Foo"));
+    }
+
+    /** ObjectName 语法错误属于用法错误（退出码 2），且不该去连目标。 */
+    @Test
+    public void malformedObjectNameIsAUsageError() throws Exception {
+        CliRunner.Result result = CliRunner.run("-s", server.server(),
+                "--object-name=ch.qos.logback.classic:Name", "get");
+
+        assertEquals(result.toString(), ExitCodes.USAGE, result.exitCode);
+        assertTrue("应指出完整形态，实际:\n" + result, result.err.contains("非法的 --object-name"));
+    }
+
+    /** 既不是 logback 也不是 Spring Boot 的 MBean：本工具不操作它，按用法错误报。 */
+    @Test
+    public void foreignDomainObjectNameIsAUsageError() throws Exception {
+        CliRunner.Result result = CliRunner.run("-s", server.server(),
+                "--object-name=java.lang:type=Runtime", "get");
+
+        assertEquals(result.toString(), ExitCodes.USAGE, result.exitCode);
+        assertTrue("应说明只认两条通道的 domain，实际:\n" + result,
+                result.err.contains("无法从 --object-name 的 domain"));
+    }
+
+    /** {@code --object-name} 与 {@code --target} 指向不同通道时是用法错误，不能默默按其中一个来。 */
+    @Test
+    public void objectNameConflictingWithTargetIsAUsageError() throws Exception {
+        CliRunner.Result result = CliRunner.run("-s", server.server(),
+                "--object-name=org.springframework.boot:type=Endpoint,name=Loggers",
+                "--target=logback", "get");
+
+        assertEquals(result.toString(), ExitCodes.USAGE, result.exitCode);
+        assertTrue("应指出两者不一致，实际:\n" + result, result.err.contains("不一致"));
+    }
+
+    /** 点名的 MBean 没注册：运行时错误（退出码 1），并指向 doctor。 */
+    @Test
+    public void missingObjectNameIsARuntimeError() throws Exception {
+        CliRunner.Result result = CliRunner.run("-s", server.server(),
+                "--object-name=" + configuratorName("nope"), "get");
+
+        assertEquals(result.toString(), ExitCodes.ERROR, result.exitCode);
+        assertTrue("应提示该 MBean 没有注册，实际:\n" + result, result.err.contains("没有注册"));
+        assertTrue("应指向 doctor，实际:\n" + result, result.err.contains("doctor"));
+    }
+
+    /** 点名了同名但 Type 不对的 MBean：明确说 Type 要求，而不是等 invoke 报看不懂的错。 */
+    @Test
+    public void objectNameWithWrongTypeIsARuntimeError() throws Exception {
+        String name = LogbackJmxProvider.DOMAIN + ":Name=weird,Type=java.lang.String";
+        server.register(new StubLogbackConfigurator(), new ObjectName(name));
+
+        CliRunner.Result result = CliRunner.run("-s", server.server(), "--object-name=" + name, "get");
+
+        assertEquals(result.toString(), ExitCodes.ERROR, result.exitCode);
+        assertTrue("应指出 Type 不对，实际:\n" + result,
+                result.err.contains("不是 logback 的 JMXConfigurator"));
+    }
+
     /** 端到端：没有 logback 通道时，默认路径的 get 依然能列出 logger。 */
     @Test
     public void cliGetWorksViaActuatorFallback() throws Exception {

@@ -45,6 +45,9 @@ Usage: jmx-logger [OPTIONS] [COMMAND]
                               目标侧无需预先开 JMX 端口；指定后优先于 -s
   -t, --target=<target>     日志通道: auto（先 logback，缺失时兜底 actuator）/
                               logback / actuator，默认值为 auto
+      --object-name=<objectName>
+                            直接指定目标 MBean 的 ObjectName（多 LoggerContext
+                              时用，取值见 doctor 的候选 MBean）
       --timeout=<seconds>   连接超时（秒），0 表示不限制，默认值为 10
   -v, --verbose             出错时打印完整堆栈（默认只打印一行错误原因）
   -h, --help                Show this help message and exit.
@@ -62,6 +65,7 @@ Commands:
 | `-s, --server` | 目标 JVM 的 JMX 地址 `host:port`（远程 RMI 通道） | `127.0.0.1:19000` |
 | `-p, --pid` | 目标 JVM 的进程号（本地 attach 通道）；指定后**优先于** `-s` | 空 |
 | `-t, --target` | 日志通道：`auto` / `logback` / `actuator`，见"两条日志通道" | `auto` |
+| `--object-name` | 直接指定目标 MBean 的 ObjectName（多 LoggerContext 时用；取值抄 `doctor` 的候选 MBean，通道按 domain 判断） | 按模式自动探测 |
 | `--username` | JMX 用户名（开启认证时） | 空 |
 | `--password` | JMX 密码（开启认证时）。不带取值时交互式读取；省略时读环境变量 `JMX_LOGGER_PASSWORD` | 空 |
 | `--timeout` | 连接超时（秒），`0` 表示不限制 | `10` |
@@ -274,6 +278,26 @@ Spring Boot 各版本的端点命名不同（1.5 是 `name=loggersEndpoint`，2.
 
 > 连不上或找不到 MBean 时，先跑 `doctor`。
 
+> **不指定 `--object-name` 时的默认行为**：logback 侧按模式
+> `ch.qos.logback.classic:Type=ch.qos.logback.classic.jmx.JMXConfigurator,*` 查询，命中多个就取
+> **第一个**——该顺序由目标 JVM 的返回决定、不做排序，所以多 LoggerContext 时"这次连上的是哪个
+> context"并不可预测；actuator 侧按 `org.springframework.boot:type=Endpoint,*` 全量查、再按名字里含
+> `logger` 过滤，命中多个时按 ObjectName 排序取第一个（这一条是稳定的）。
+> 想确认当前实际用的是哪条，看 `doctor` 的"候选 MBean"段：它会打印解析到的完整 ObjectName。
+
+> 目标有多个 LoggerContext（多个 `JMXConfigurator`）时，`doctor` 会提示用 `--object-name`
+> 指定要操作的那一个——取值直接抄它打印的候选 MBean：
+>
+> ```bash
+> jmx-logger -s 10.0.0.5:19000 \
+>     --object-name ch.qos.logback.classic:Name=custom,Type=ch.qos.logback.classic.jmx.JMXConfigurator \
+>     get com.example
+> ```
+>
+> 通道按 ObjectName 的 domain 判断（`ch.qos.logback.classic` → logback，
+> `org.springframework.boot` → actuator）；与 `--target` 指的通道不一致时按用法错误退出（码 `2`），
+> 不会默默挑一个。
+
 ## 目标应用侧配置
 
 > 用 `-p/--pid` 本地 attach 时，只需做第 1 步（`<jmxConfigurator/>`），第 2 步"暴露 JMX 端口"可以整段跳过。
@@ -296,6 +320,8 @@ ch.qos.logback.classic:Name=<contextName>,Type=ch.qos.logback.classic.jmx.JMXCon
 ```
 
 工具正是按 `ch.qos.logback.classic:Type=ch.qos.logback.classic.jmx.JMXConfigurator,*` 去查询它的。**没配这一行，一切命令都不可用。**
+应用里注册了多个 LoggerContext 时会命中多个，默认取查询结果的第一个（不排序）；
+要操作其中特定一个，用 `--object-name` 点名（见"doctor"一节）。
 
 ### 2. 暴露 JMX 端口
 
@@ -412,7 +438,7 @@ transport/provider 抽象、`doctor` 诊断子命令、统一退出码与 `--ver
 | P1 | ~~抽出 transport/provider 抽象~~ ✅；~~新增 `doctor` 诊断子命令~~ ✅；~~统一退出码与 `--verbose`~~ ✅ |
 | P2 | ~~`-p/--pid` 本地 attach（目标未开 JMX 端口时，通过 attach API 动态拉起管理代理，目标侧零配置）~~ ✅ |
 | P3 | ~~Spring Boot Actuator 兜底通道（`-t auto` 在目标无 `<jmxConfigurator/>` 时自动切换到 `actuator`：按 `MBeanInfo` 现场构造参数、reload 不支持时给出替代方案）~~ ✅ |
-| P4 | ~~`clear` 命令（恢复继承级别）~~ ✅；`--json` 输出、`--object-name`（多 LoggerContext） |
+| P4 | ~~`clear` 命令（恢复继承级别）~~ ✅；~~`--object-name`（多 LoggerContext）~~ ✅；`--json` 输出 |
 | P5 | Spring Boot 3.x / Logback 1.4+ 的 HTTP 通道预留 |
 
 ## 开发

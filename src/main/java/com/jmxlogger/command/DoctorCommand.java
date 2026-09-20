@@ -1,6 +1,8 @@
 package com.jmxlogger.command;
 
 import com.jmxlogger.JmxLoggerCli;
+import com.jmxlogger.provider.ActuatorJmxProvider;
+import com.jmxlogger.provider.LogbackJmxProvider;
 import com.jmxlogger.support.ExitCodes;
 import com.jmxlogger.transport.LocalPidConnector;
 import com.jmxlogger.transport.RemoteJmxConnector;
@@ -42,12 +44,10 @@ import java.util.regex.Pattern;
         mixinStandardHelpOptions = true)
 public class DoctorCommand implements Callable<Integer> {
 
-    /** logback JMXConfigurator 的 ObjectName 模式（与 {@code LogbackJmxProvider} 一致）。 */
-    private static final String LOGBACK_PATTERN =
-            "ch.qos.logback.classic:Type=ch.qos.logback.classic.jmx.JMXConfigurator,*";
+    /** 与两条通道的 Provider 共用同一份 ObjectName 拼接：诊断看到的必须就是实际会连的那条 MBean。 */
+    private static final String LOGBACK_PATTERN = LogbackJmxProvider.PATTERN;
 
-    /** Spring Boot actuator 端点统一挂在 {@code org.springframework.boot:type=Endpoint} 下。 */
-    private static final String BOOT_ENDPOINT_PATTERN = "org.springframework.boot:type=Endpoint,*";
+    private static final String BOOT_ENDPOINT_PATTERN = ActuatorJmxProvider.ENDPOINT_PATTERN;
 
     private static final String RUNTIME_OBJECT_NAME = "java.lang:type=Runtime";
 
@@ -218,7 +218,7 @@ public class DoctorCommand implements Callable<Integer> {
             out.append("  [可用] logback JMXConfigurator 存在：get / set / reload 全部可用。\n");
             if (logbackConfigurators.size() > 1) {
                 out.append("  目标有多个 LoggerContext（").append(logbackConfigurators.size())
-                        .append(" 个），当前固定取第一个；P4 的 --object-name 可显式指定。\n");
+                        .append(" 个），当前固定取第一个；用 --object-name 可显式指定要操作哪一个。\n");
             }
         } else {
             out.append("  [缺失] 未找到 logback JMXConfigurator：目标 logback.xml 未配置 ")

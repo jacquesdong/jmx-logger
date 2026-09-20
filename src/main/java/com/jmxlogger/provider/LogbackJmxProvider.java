@@ -22,7 +22,14 @@ public class LogbackJmxProvider implements LoggerProvider {
 
     public static final String ID = "logback";
 
-    private static final String CONFIGURATOR_TYPE = "ch.qos.logback.classic.jmx.JMXConfigurator";
+    /** logback 配置器 MBean 的 domain（ObjectName 里冒号前的那一段）。 */
+    public static final String DOMAIN = "ch.qos.logback.classic";
+
+    /** 配置器的 Type 取值（= 类的全限定名）：ObjectName 里 {@code Type=} 后面就是它。 */
+    public static final String CONFIGURATOR_TYPE = "ch.qos.logback.classic.jmx.JMXConfigurator";
+
+    /** 探测配置器的查询模式；报错与 doctor 里给用户看的也是这个形态（只此一处拼）。 */
+    public static final String PATTERN = DOMAIN + ":Type=" + CONFIGURATOR_TYPE + ",*";
 
     private final TargetConnector connector;
     private final MBeanServerConnection mbsc;
@@ -33,9 +40,37 @@ public class LogbackJmxProvider implements LoggerProvider {
      * @throws IOException           连接本身不可用
      */
     public LogbackJmxProvider(TargetConnector connector) throws IOException {
+        this(connector, null);
+    }
+
+    /**
+     * 直接点名要操作的配置器 MBean（{@code --object-name}）：目标上有多个 LoggerContext
+     * （多个 JMXConfigurator）时用它挑一个，而不是默认取查询结果里的第一个。
+     *
+     * @param explicit 为 {@code null} 时按 {@link #PATTERN} 自动探测
+     * @throws IllegalStateException 点名的 MBean 不存在，或它不是 logback 的配置器
+     */
+    public LogbackJmxProvider(TargetConnector connector, ObjectName explicit) throws IOException {
         this.connector = connector;
         this.mbsc = connector.getMBeanServerConnection();
-        this.configuratorName = findConfiguratorObjectName();
+        this.configuratorName = explicit == null ? findConfiguratorObjectName() : verifyExplicit(explicit);
+    }
+
+    /**
+     * 校验点名的那条 MBean 确实是 logback 的配置器。不存在或 Type 不对都当场说清楚，
+     * 而不是等后面 {@code invoke} 时报一个看不懂的 {@code NoSuchMethod}。
+     */
+    private ObjectName verifyExplicit(ObjectName name) throws IOException {
+        if (!mbsc.isRegistered(name)) {
+            throw new IllegalStateException("目标 JVM 上没有注册 " + name + " 这个 MBean。\n"
+                    + "用 doctor 可以列出目标上真实存在的候选 MBean。");
+        }
+        String type = name.getKeyProperty("Type");
+        if (!CONFIGURATOR_TYPE.equals(type)) {
+            throw new IllegalStateException(name + " 不是 logback 的 JMXConfigurator（Type=" + type + "）；"
+                    + "logback 通道要求 Type=" + CONFIGURATOR_TYPE + "。");
+        }
+        return name;
     }
 
     /** 目标侧实际解析到的 ObjectName（多 LoggerContext 时可用于诊断）。 */
@@ -46,7 +81,7 @@ public class LogbackJmxProvider implements LoggerProvider {
     private ObjectName findConfiguratorObjectName() throws IOException {
         ObjectName pattern;
         try {
-            pattern = new ObjectName("ch.qos.logback.classic:Type=" + CONFIGURATOR_TYPE + ",*");
+            pattern = new ObjectName(PATTERN);
         } catch (Exception e) {
             throw new IllegalStateException("ObjectName 模式非法", e);
         }

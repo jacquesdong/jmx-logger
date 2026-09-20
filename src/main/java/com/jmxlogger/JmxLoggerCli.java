@@ -80,6 +80,14 @@ public class JmxLoggerCli implements Runnable {
                     + "默认值为 ${DEFAULT-VALUE}")
     private String target = ProviderFactory.AUTO;
 
+    /**
+     * 直接点名的目标 MBean。目标上有多个 LoggerContext（多个 JMXConfigurator）时，
+     * 默认"取第一个"未必是要操作的那个，用它显式指定；取值直接抄 doctor 打印的候选 MBean。
+     */
+    @Option(names = {"--object-name"},
+            description = "直接指定目标 MBean 的 ObjectName（多 LoggerContext 时用，取值见 doctor 的候选 MBean）")
+    private String objectName;
+
     // paramLabel 自带尖括号：字段叫 timeoutSeconds，不覆盖会渲染成 <timeoutSeconds>；
     // 显式覆盖时 picocli 原样输出，尖括号得自己带上，否则只有它跟别的选项长得不一样
     @Option(names = {"--timeout"}, paramLabel = "<seconds>",
@@ -161,12 +169,17 @@ public class JmxLoggerCli implements Runnable {
      * 日志通道由 {@code --target} 决定，见 {@link ProviderFactory}）。
      */
     public JmxClient connect() throws Exception {
-        return new JmxClient(openConnector(), target);
+        return new JmxClient(openConnector(), target, objectName);
     }
 
     /** {@code -t/--target} 的原始取值：{@code auto} / {@code logback} / {@code actuator}。 */
     public String getTarget() {
         return target;
+    }
+
+    /** {@code --object-name} 的原始取值；未指定时为 {@code null}（按 ObjectName 模式自动探测）。 */
+    public String getObjectName() {
+        return objectName;
     }
 
     private String requireServer() {

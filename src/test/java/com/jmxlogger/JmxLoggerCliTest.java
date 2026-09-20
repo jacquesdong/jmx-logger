@@ -61,7 +61,7 @@ public class JmxLoggerCliTest {
 
         String[] declaredOrder = {
                 "--server=<server>", "--username=<username>", "--password[=<password>]", "--pid=<pid>",
-                "--target=<target>", "--timeout=<seconds>", "--verbose"
+                "--target=<target>", "--object-name=<objectName>", "--timeout=<seconds>", "--verbose"
         };
         int previous = -1;
         for (String option : declaredOrder) {

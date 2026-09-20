@@ -2,6 +2,8 @@ package com.jmxlogger.provider;
 
 import com.jmxlogger.transport.TargetConnector;
 
+import javax.management.MalformedObjectNameException;
+import javax.management.ObjectName;
 import java.io.IOException;
 import java.util.Arrays;
 import java.util.Collections;
@@ -40,7 +42,20 @@ public final class ProviderFactory {
      * @throws IOException              连接不可用
      */
     public static LoggerProvider open(TargetConnector connector, String target) throws IOException {
+        return open(connector, target, null);
+    }
+
+    /**
+     * @param objectName 直接点名的目标 MBean（{@code --object-name}）；非空时不再探测，
+     *                   按 ObjectName 的 domain 判断这是哪条通道
+     */
+    public static LoggerProvider open(TargetConnector connector, String target, String objectName)
+            throws IOException {
         String normalized = normalize(target);
+        String explicit = objectName == null ? null : objectName.trim();
+        if (explicit != null && !explicit.isEmpty()) {
+            return byObjectName(connector, normalized, explicit);
+        }
         if (LogbackJmxProvider.ID.equals(normalized)) {
             return new LogbackJmxProvider(connector);
         }
@@ -48,6 +63,48 @@ public final class ProviderFactory {
             return new ActuatorJmxProvider(connector);
         }
         return auto(connector);
+    }
+
+    /**
+     * 用户直接点了 MBean：不再探测，按 domain 判断通道。domain 只认 logback 与 Spring Boot
+     * 两个——别的 MBean 本工具也不会操作；与 {@code --target} 冲突时按用法错误报出来，
+     * 而不是硬塞给某个 Provider、再抛一个看不懂的错。
+     */
+    private static LoggerProvider byObjectName(TargetConnector connector, String target, String value)
+            throws IOException {
+        ObjectName name = parseObjectName(value);
+        String channel = channelOf(name.getDomain());
+        if (!AUTO.equals(target) && !target.equals(channel)) {
+            throw new IllegalArgumentException("--object-name 指向的是 " + channel + " 通道的 MBean，"
+                    + "与 --target " + target + " 不一致；两者保持一致，或去掉 --target 让工具按 MBean 判断。");
+        }
+        if (LogbackJmxProvider.ID.equals(channel)) {
+            return new LogbackJmxProvider(connector, name);
+        }
+        return new ActuatorJmxProvider(connector, name);
+    }
+
+    /** ObjectName 的 domain → 通道 id；认不出来直接按用法错误报，并指向 doctor。 */
+    private static String channelOf(String domain) {
+        if (LogbackJmxProvider.DOMAIN.equals(domain)) {
+            return LogbackJmxProvider.ID;
+        }
+        if (ActuatorJmxProvider.DOMAIN.equals(domain)) {
+            return ActuatorJmxProvider.ID;
+        }
+        throw new IllegalArgumentException("无法从 --object-name 的 domain \"" + domain
+                + "\" 判断日志通道（只认 " + LogbackJmxProvider.DOMAIN + " 与 "
+                + ActuatorJmxProvider.DOMAIN + "）。\n用 doctor 可以列出目标上真实存在的候选 MBean。");
+    }
+
+    private static ObjectName parseObjectName(String value) {
+        try {
+            return new ObjectName(value);
+        } catch (MalformedObjectNameException e) {
+            throw new IllegalArgumentException("非法的 --object-name \"" + value + "\"：" + e.getMessage()
+                    + "\n完整形态形如 " + LogbackJmxProvider.DOMAIN + ":Name=default,Type="
+                    + LogbackJmxProvider.CONFIGURATOR_TYPE + "（doctor 会打印候选 MBean）。", e);
+        }
     }
 
     private static LoggerProvider auto(TargetConnector connector) throws IOException {

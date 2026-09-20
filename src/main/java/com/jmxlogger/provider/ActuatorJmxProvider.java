@@ -53,8 +53,11 @@ public class ActuatorJmxProvider implements LoggerProvider {
 
     public static final String ID = "actuator";
 
+    /** Spring Boot 端点 MBean 的 domain（ObjectName 里冒号前的那一段）。 */
+    public static final String DOMAIN = "org.springframework.boot";
+
     /** Spring Boot 端点统一挂在这个 domain + type 下，具体 {@code name} 各版本不同。 */
-    private static final String ENDPOINT_PATTERN = "org.springframework.boot:type=Endpoint,*";
+    public static final String ENDPOINT_PATTERN = DOMAIN + ":type=Endpoint,*";
 
     /** 全量列表的属性名：Spring Boot 1.5 与 2.x 实测都是 {@code Loggers}，小写是保险。 */
     private static final String[] LIST_ATTRIBUTES = {"Loggers", "loggers"};
@@ -80,9 +83,28 @@ public class ActuatorJmxProvider implements LoggerProvider {
      * @throws java.io.IOException   连接本身不可用
      */
     public ActuatorJmxProvider(TargetConnector connector) throws java.io.IOException {
+        this(connector, null);
+    }
+
+    /**
+     * 直接点名端点 MBean（{@code --object-name}）：同一目标上有多个候选端点时用它挑一个。
+     *
+     * @param explicit 为 {@code null} 时按 {@link #ENDPOINT_PATTERN} 查询再按名字过滤
+     * @throws IllegalStateException 点名的 MBean 没有注册
+     */
+    public ActuatorJmxProvider(TargetConnector connector, ObjectName explicit) throws java.io.IOException {
         this.connector = connector;
         this.mbsc = connector.getMBeanServerConnection();
-        this.endpointName = findEndpointObjectName();
+        this.endpointName = explicit == null ? findEndpointObjectName() : verifyExplicit(explicit);
+    }
+
+    /** 点名的端点必须真实存在：与其后面每个操作都报错，不如在建 Provider 时就失败。 */
+    private ObjectName verifyExplicit(ObjectName name) throws java.io.IOException {
+        if (!mbsc.isRegistered(name)) {
+            throw new IllegalStateException("目标 JVM 上没有注册 " + name + " 这个 MBean。\n"
+                    + "用 doctor 可以列出目标上真实存在的候选 MBean。");
+        }
+        return name;
     }
 
     /** 目标侧实际解析到的 ObjectName，报错与诊断信息里会用到。 */

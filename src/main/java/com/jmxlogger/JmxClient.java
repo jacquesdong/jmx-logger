@@ -54,9 +54,17 @@ public class JmxClient implements AutoCloseable {
      *               {@code actuator}）
      */
     public JmxClient(TargetConnector connector, String target) throws IOException {
+        this(connector, target, null);
+    }
+
+    /**
+     * @param objectName 直接点名的目标 MBean（{@code --object-name}）；{@code null} 时按
+     *                   ObjectName 模式自动探测
+     */
+    public JmxClient(TargetConnector connector, String target, String objectName) throws IOException {
         this.connector = connector;
         try {
-            this.provider = ProviderFactory.open(connector, target);
+            this.provider = ProviderFactory.open(connector, target, objectName);
         } catch (IOException | RuntimeException e) {
             // 构造失败时不会有人调用 close()，这里必须自己收尾，否则 RMI 连接泄漏
             // （ProviderFactory 只在"两条通道都不可用"时才关，单条通道失败归这里收尾）
