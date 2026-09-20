@@ -86,6 +86,18 @@
                         </goals>
                         <configuration>
                             <createDependencyReducedPom>false</createDependencyReducedPom>
+                            <!-- 只掐掉 picocli 的 MANIFEST：它的 OSGi 头我们不用，而那份
+                                 Multi-Release: true 更不能带进来——jar 里来自 picocli 的
+                                 META-INF/versions/9/module-info.class 会被当成本 fat jar 的模块声明。
+                                 最终 manifest 由下面的 transformer 显式生成（Main-Class 是契约）。 -->
+                            <filters>
+                                <filter>
+                                    <artifact>info.picocli:picocli</artifact>
+                                    <excludes>
+                                        <exclude>META-INF/MANIFEST.MF</exclude>
+                                    </excludes>
+                                </filter>
+                            </filters>
                             <transformers>
                                 <transformer implementation="org.apache.maven.plugins.shade.resource.ManifestResourceTransformer">
                                     <mainClass>com.jmxlogger.JmxLoggerCli</mainClass>
