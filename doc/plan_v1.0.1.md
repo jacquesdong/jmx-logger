@@ -157,12 +157,23 @@ flowchart LR
 | P1 | 抽象与诊断 | transport/ + provider/ 骨架、`LogbackJmxProvider` 迁移、`DoctorCommand`、统一退出码 | 对现有 Spring Boot 1.5.6 目标 `get/set/reload` 行为与改造前完全一致；`doctor -s host:port` 能列出候选 MBean 与操作签名 |
 | P2 | 本地 attach | `LocalPidConnector`、`-p/--pid` | 对未开 JMX 端口的本机进程：`get -p <pid>` 成功；容器内/JRE 缺失时给出明确报错而非堆栈 |
 | P3 | ~~Actuator 兜底（**Spring Boot 1.5 + 2.7 双命名**）~~ ✅ | ~~`ActuatorJmxProvider`（`Endpoint,*` 查询后按 `name` 含 logger 过滤，签名与返回值由 MBeanInfo 决定）+ `ProviderFactory` auto~~ | ① 现网 Spring Boot 1.5 目标上 `-t actuator get` 实测 1 次 RMI 列出全部 786 个 logger，与 `-t logback get` 一致 ✅；② `-t auto` 在两条都在时选 logback、缺 logback 时自动切换 ✅（用例覆盖）；③ `reload` 给出替代方案而非崩溃 ✅ |
-| P4 | 打磨 | `--json`、`clear` 命令（下发字符串 `"null"` 恢复继承）、`--object-name`、**logger 不存在报错 + 非 0 退出码**、单测、Justfile、README | 单元测通过；`get --json` 可被脚本消费；`get 不存在的名字` 打印"未找到 logger X"且退出码为 3 |
+| P4 | 打磨 | `--json`、`clear` 命令（下发字符串 `"null"` 恢复继承）、`--object-name`、单测、Justfile、README；~~logger 不存在报错 + 非 0 退出码~~ ❌ 见下文 | 单元测通过；`get --json` 可被脚本消费；~~`get 不存在的名字` 退出码 `3`~~ ❌ **未实施**——目标侧区分不出"不存在"与"未配置"，见「logger 不存在的处理契约（❌ 已放弃）」 |
 | P5 | ~~未来 Spring Boot 3 预留~~ ❌ **已放弃** | 基于已有 Provider 接口扩展 HTTP Provider / 自定义 endpoint 指引 | 现有目标栈只到 Spring Boot 2.7.18；真要支持时按真实签名实现 HTTP provider，不做提前预留 |
 
-### P4 新增：logger 不存在的处理契约
+### P4 曾计划：logger 不存在的处理契约（❌ 已放弃，未实施）
 
-当前 `get <name>` / `get <name> -r` 在目标上查不到时，会打印一行空白数据（或"未找到以 X 开头的 logger"）并**以 0 退出**，脚本无法判断是否真的查到了。P4 统一改为：
+**结论：不实施。** 原因在协议层而不是实现层：logback 的 `getLoggerLevel` 对「logger 不存在」与「存在但未单独配置级别」
+返回的都是空串；actuator 的单查对不存在的名字也会返回带 `effectiveLevel` 的 Map（见上文实测）。也就是说
+**目标侧根本无法区分这两种情况**，据此给出"未找到"的退出码只会误导脚本——脚本拿到的将是一个不可靠的信号。
+
+最终实现（与 README 的"退出码"一节一致）：
+
+- `get <name>`：**总是给出一行**（Level 为空即"继承父 logger"），退出码 `0`；
+- `get <name> -r`：无匹配时打印 `未找到以 "<name>" 开头的 logger`，退出码 `0`——这属于"查无此 logger"，不是错误；
+- `--json`：与表格同源，输出 `{"loggers":[...]}`；
+- 退出码保持 `0` 成功 / `1` 运行时错误 / `2` 用法错误，**不新增 `3`**。
+
+以下为原计划，保留作历史记录（未实施）：
 
 | 场景 | 输出（stderr） | 退出码 |
 | --- | --- | --- |
@@ -170,7 +181,7 @@ flowchart LR
 | `get <name> -r`：无任何匹配 | `未找到以 "<name>" 开头的 logger` | `3` |
 | `--json` 模式 | 除 stderr 提示外，stdout 输出空结果 `{"loggers":[]}`，保证仍可被脚本解析 | `3` |
 
-退出码约定（在 `ExitCodes` 与 README 中同步定稿）：`0` 成功、`1` 运行时错误（连不上、MBean 不存在、JMX 调用失败）、`2` 用法错误（非法级别、参数缺失）、**`3` 未找到（logger 不存在 / 过滤无匹配）**。选独立码而非复用 `1`，是为了让脚本能区分"目标上没这个 logger"与"根本没连上"。
+退出码约定（❌ **未实施**，最终只保留 `0/1/2`）：`0` 成功、`1` 运行时错误（连不上、MBean 不存在、JMX 调用失败）、`2` 用法错误（非法级别、参数缺失）、~~`3` 未找到（logger 不存在 / 过滤无匹配）~~。原计划选独立码是为了让脚本区分"目标上没这个 logger"与"根本没连上"，但目标侧区分不出"不存在"与"未配置"，这个码无法可靠产生。
 
 
 ### 已完成（P1 之一）：transport/provider 抽象
@@ -266,7 +277,7 @@ OP   setLogLevel(String, String) → void
 
 1. `configuredLevel` 未配置时是 `null`（不是空串），统一收敛成空串；
 2. **查不存在的 logger 也会返回带 `effectiveLevel` 的 Map**，因此"logger 是否存在"
-   只能以全量列表为准，不能看单查返回值（直接关系到 P4 的"未找到 logger → 退出码 3"）。
+   只能以全量列表为准，不能看单查返回值（这也正是 P4「未找到 logger → 退出码 3」被放弃的原因：目标侧区分不出"不存在"与"未配置"）。
 
 验收（真实目标）：`-t actuator get` 与 `-t logback get` 结果一致
 （786 个 logger、ROOT=WARN）；`-t auto` 在两条都在时选 logback；
@@ -299,6 +310,6 @@ OP   setLogLevel(String, String) → void
 - P2：attach 受限于 OS 权限、JRE（无 tools.jar）、容器 PID namespace；失败分支必须先于功能分支实现。
 - P3：~~Actuator 操作签名与返回值形态存在版本差异，先探测后编码、禁止猜测~~ —— **Spring Boot 1.5 已在真实目标上实测**（`Loggers` 属性/`getLoggers()` 返回 `LinkedHashMap{levels, loggers={名字→{configuredLevel, effectiveLevel}}}`、`getLogger(String)`、`setLogLevel(String,String)`），实现按 `MBeanInfo` 适配、两套命名都认，已留档于上文"已完成（P3）"。
   **Spring Boot 2.7 已在真实进程上验证**（见 `tools/e2e/verify.sh 2.7.18`）：实测签名 `configureLogLevel(java.lang.String, java.lang.String)`、`loggers()` / `loggerLevels(String)` 返回 `java.util.Map`，无需任何类型转换兜底。前提是目标必须设 `spring.jmx.enabled=true`（**Spring Boot 2.2 起 JMX 默认关闭**），否则端点根本不会注册到 JMX。
-- P4：`--json` 输出与退出码一旦发布即成为契约，字段名与码值需一次定稿；新增的退出码 `3` 要同时同步到 `ExitCodes`、`README` 与本文档。
+- P4：`--json` 输出一旦发布即成为契约，字段名需一次定稿（已定稿为 `logger` / `level` / `effective` 加顶层 `listed` / `omitted`）；曾计划的退出码 `3`（logger 不存在）**已放弃**——目标侧区分不出"不存在"与"未配置"，退出码保持 `0/1/2`。
 - P5（**已放弃**）：Spring Boot 3.x 的 JMX 默认只暴露 `health`、logback ≥1.3 已无 `JMXConfigurator`，届时只剩 HTTP/自定义 endpoint 一条路；但现有目标栈不涉及 3.x，决定不提前预留、也不写文档，真需要时按当时的真实签名实现。
   （**注**：原计划"Spring Boot 1.5 actuator 属旧命名模型、不在支持范围"一条已作废——Spring Boot 1.5 端点已在真实进程上实测可用，且是现网唯一可行的兜底通道，已并入 P3。）
