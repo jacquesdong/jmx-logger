@@ -50,7 +50,7 @@ Usage: jmx-logger [OPTIONS] [COMMAND]
   -h, --help                Show this help message and exit.
   -V, --version             Print version information and exit.
 Commands:
-  get     查看 Logger 的级别
+  get     查看 Logger 的级别（默认只列单独配置了级别的）
   set     设置 Logger 的级别
   clear   清除 Logger 自身配置的级别，恢复继承父 logger
   reload  重新加载 Logback 配置
@@ -144,27 +144,52 @@ actuator 通道的两点限制：
 ### get — 查看级别
 
 ```bash
-jmx-logger -s 10.0.0.5:19000 get                 # 列出全部 logger
-jmx-logger -s 10.0.0.5:19000 get com.example     # 查看单个 logger
-jmx-logger -s 10.0.0.5:19000 get -r com.example  # 递归：com.example 及其全部子 logger
+jmx-logger -s 10.0.0.5:19000 get                      # 列出单独配置了级别的 logger
+jmx-logger -s 10.0.0.5:19000 get --all                # 连同未单独配置级别的一起列出
+jmx-logger -s 10.0.0.5:19000 get --effective          # 额外显示实际生效级别
+jmx-logger -s 10.0.0.5:19000 get com.example          # 查看单个 logger（未配置也给出这一行）
+jmx-logger -s 10.0.0.5:19000 get -r com.example       # 递归：该 logger 及子 logger 中配置过级别的
 ```
 
-输出：
+输出（默认只查配置级别，两列；列表只列单独配置了级别的）：
+
+```
+Logger                                             Level
+-------------------------------------------------- ----------
+ROOT                                               INFO
+com.example.service.OrderService                   DEBUG
+
+共 2 个 logger（仅列单独配置了级别的；另有 1 个未配置，已省略）
+```
+
+加 `--effective` 后多一列——每个 logger 多一次远程调用，这是 `get` 在大目标上的主要耗时：
 
 ```
 Logger                                             Level      Effective
 -------------------------------------------------- ---------- ----------
 ROOT                                               INFO       INFO
-com.example                                                   INFO
 com.example.service.OrderService                   DEBUG      DEBUG
 
-共 3 个 logger
+共 2 个 logger（仅列单独配置了级别的；另有 1 个未配置，已省略）
 ```
 
-- `Level` 为该 logger 自身配置的级别；**为空**表示未单独配置、继承父 logger——目标侧返回的
-  就是空串（logback 的 `EMPTY`，actuator 的空 `configuredLevel`），输出如实留空，
+- 列表默认**只列单独配置了级别的 logger**：未配置的行是噪音（目标应用里通常是绝大多数，
+  全打出来会把"谁被改过级别"淹掉），省略掉的数量在统计行里交代；要看全量用 `--all`；
+- 显式指定名字时不过滤，因为"没配"本身就是答案——此时 `Level` 为空表示该 logger 未单独配置、继承父 logger，
+  目标侧返回的就是空串（logback 的 `EMPTY`，actuator 的空 `configuredLevel`），输出如实留空，
   不另造 `(inherited)` 这类目标侧并不存在的取值；
-- `Effective` 为实际生效级别（由 Logback 侧计算）。
+- `Effective`（加 `--effective` 才有）为实际生效级别，由目标侧计算：logback 通道下每个
+  logger 要多一次 `getLoggerEffectiveLevel` 远程调用，因此默认不查，输出只有两列。
+
+`--all` 与 `--effective` 是两个**正交**的开关：前者决定**列哪些行**（是否省略未单独配置
+级别的 logger），后者决定**每行多列什么**（是否附带生效级别），所以四种组合都成立：
+
+| 命令 | 输出 |
+| --- | --- |
+| `get` | 只列配了级别的 logger，两列 |
+| `get --all` | 全部 logger，两列（未配置的那些 Level 留空） |
+| `get --effective` | 只列配了级别的 logger，三列 |
+| `get --all --effective` | 全部 logger，三列 |
 
 ### set — 修改级别
 
