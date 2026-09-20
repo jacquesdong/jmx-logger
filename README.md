@@ -29,8 +29,9 @@ fat jar 内已包含 picocli，拷到任意有 JRE/JDK 的机器上 `java -jar` 
 
 ## 用法
 
-下面就是 `jmx-logger --help` 的实际输出（选项按"连接 → 认证 → 通道 → 输出"排列，
-不是字母序）。改了 `--help` 的形态记得同步这里：
+下面是 `jmx-logger --help` 在 80 列终端下的实际输出（选项按"连接 → 认证 → 通道 → 输出"排列，
+不是字母序）。`--password` 一行的折行位置随终端宽度变化，属正常现象；
+改了 `--help` 的形态记得同步这里：
 
 ```text
 Usage: jmx-logger [OPTIONS] [COMMAND]
@@ -109,13 +110,17 @@ attach API 全程反射调用（JDK 8 位于 `tools.jar`，JDK 9+ 归入 `jdk.at
 
 | 通道 | 依据的 MBean | `get` / `set` | `reload` | 目标侧需要 |
 | --- | --- | --- | --- | --- |
-| `logback` | `ch.qos.logback.classic.jmx.JMXConfigurator` | 支持 | **支持** | `logback.xml` 加 `<jmxConfigurator/>` |
+| `logback` | `ch.qos.logback.classic:`<br>`Name=<contextName>,Type=ch.qos.logback.classic.jmx.JMXConfigurator` | 支持 | **支持** | `logback.xml` 加 `<jmxConfigurator/>` |
 | `actuator` | `org.springframework.boot:type=Endpoint,name=Loggers`（Spring Boot 2.7）<br>`name=loggersEndpoint`（Spring Boot 1.5） | 支持 | 不支持 | `spring-boot-starter-actuator` |
 
 端点命名与操作名两套都认（Spring Boot 1.5 的 `getLoggers()`/`getLogger`/`setLogLevel`
 与 Spring Boot 2.7 的 `loggers()`/`loggerLevels`/`configureLogLevel`），
 已在真实 Spring Boot 1.5.6 与 1.5.20 目标上实测：一次调用即可拿到全部 logger，
 条数与 `logback` 通道一致（数量取决于目标应用自身的类加载情况，不固定）。
+
+> Spring Boot 2.7 一侧的端点命名与操作签名**尚未在真实目标上实测**（按官方文档实现，
+> 单测用桩 MBean 覆盖）。2.7 目标建议先跑 `doctor` 看实际签名：`configureLogLevel`
+> 的第二个参数可能是 `String`，也可能是本地 classpath 里没有的 `LogLevel` 枚举。
 
 `-t auto`（默认）**先 logback 后 actuator**：logback 能力最全（含配置重载），
 actuator 只作为兜底；两条都没有时报错里同时给出两边的缺失原因与目标侧该加的配置。
@@ -153,6 +158,8 @@ ROOT                                               INFO       INFO
 com.example                                                   INFO
 com.example.service.OrderService                   DEBUG      DEBUG
 Level 为空表示该 logger 未单独配置级别，继承父 logger
+
+共 3 个 logger
 ```
 
 - `Level` 为该 logger 自身配置的级别；**为空**表示未单独配置、继承父 logger——目标侧返回的
@@ -294,7 +301,7 @@ ch.qos.logback.classic:Name=<contextName>,Type=ch.qos.logback.classic.jmx.JMXCon
 | 目标应用 | 内置 Logback | `JMXConfigurator` | 本工具 |
 | --- | --- | --- | --- |
 | Spring Boot 1.5.6 / 1.5.20（JDK 8） | 1.1.x | 有 | 支持（实测） |
-| Spring Boot 2.7.18（JDK 8+） | 1.2.12 | 有 | 支持，无需改动 |
+| Spring Boot 2.7.18（JDK 8+） | 1.2.12 | 有 | logback 通道支持、无需改动；actuator 通道未实测 |
 | Spring Boot 3.x（JDK 17+） | 1.4.x+ | **已移除** | 暂不支持 |
 
 关键点：
@@ -334,7 +341,7 @@ java -jar target/jmx-logger.jar -s 10.0.0.5:19000 get || echo "失败，退出�
 | `连接 JMX 服务器超时（超过 N ms）` | TCP 能建连但对面不回应，典型是防火墙丢包或 `jmxremote.rmi.port` 未放通；按报错里的提示逐项核对，或先用 `--timeout 30` 排除"只是慢" |
 | `未找到 Logback JMXConfigurator MBean` | 目标 `logback.xml` 缺 `<jmxConfigurator/>`，或该 JVM 用的不是 Logback；带 actuator 时会自动兜底（见"两条日志通道"），不想兜底就 `-t logback` 看原始报错 |
 | `目标 JVM 上没有可用的日志通道` | logback 与 actuator 两条都没找到：按报错里的 a/b 二选一加配置，或 `-t` 强制指定；用 `doctor` 看目标上真实有哪些 MBean |
-| `无法把取值 "DEBUG" 转成目标 MBean 声明的参数类型 LogLevel` | actuator 端点把级别暴露成本地没有的 `LogLevel` 枚举，远程无法构造：改用 `-t logback`，或用 `doctor` 看真实签名 |
+| `无法把取值 "DEBUG" 转成目标 MBean 声明的参数类型 org.springframework.boot.logging.LogLevel` | actuator 端点把级别暴露成本地没有的 `LogLevel` 枚举，远程无法构造：改用 `-t logback`，或用 `doctor` 看真实签名 |
 | `当前通道 actuator 不支持重载配置` | actuator 端点不支持重载：目标 `logback.xml` 开 `scan="true"`，或加 `<jmxConfigurator/>` 后走 `-t logback` |
 | `未知的 -t/--target 取值 "..."` | 取值只有 `auto` / `logback` / `actuator` 三个 |
 | 连上后很快断开 / 卡住 | 未设 `java.rmi.server.hostname`，或 `rmi.port` 与 `port` 不一致 |
@@ -372,7 +379,7 @@ java -jar target/jmx-logger.jar -s 10.0.0.5:19000 --username admin --password '.
 
 ## 路线图
 
-按阶段推进，每阶段可独立验收与回滚（详见 `doc/plan_v1.0.1.md`）。**P1、P2、P3 已完成**：
+按阶段推进，每阶段可独立验收与回滚（详见 `doc/plan_v1.0.1.md`）。**P1、P2、P3 已完成，P4 进行中**：
 transport/provider 抽象、`doctor` 诊断子命令、统一退出码与 `--verbose`、`-p/--pid` 本地 attach、
 `-t/--target` 通道选择与 Actuator 兜底。
 
@@ -381,7 +388,7 @@ transport/provider 抽象、`doctor` 诊断子命令、统一退出码与 `--ver
 | P1 | ~~抽出 transport/provider 抽象~~ ✅；~~新增 `doctor` 诊断子命令~~ ✅；~~统一退出码与 `--verbose`~~ ✅ |
 | P2 | ~~`-p/--pid` 本地 attach（目标未开 JMX 端口时，通过 attach API 动态拉起管理代理，目标侧零配置）~~ ✅ |
 | P3 | ~~Spring Boot Actuator 兜底通道（`-t auto` 在目标无 `<jmxConfigurator/>` 时自动切换到 `actuator`：按 `MBeanInfo` 现场构造参数、reload 不支持时给出替代方案）~~ ✅ |
-| P4 | `--json` 输出、`clear` 命令（恢复继承级别）、`--object-name`（多 LoggerContext） |
+| P4 | ~~`clear` 命令（恢复继承级别）~~ ✅；`--json` 输出、`--object-name`（多 LoggerContext） |
 | P5 | Spring Boot 3.x / Logback 1.4+ 的 HTTP 通道预留 |
 
 ## 开发
